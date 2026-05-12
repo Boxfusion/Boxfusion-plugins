@@ -1,0 +1,243 @@
+﻿Name,Module,Release No,Dependencies,Description,Supported,From field: Dependencies,Created
+boxfusion.content-1.6.7,boxfusion.content,1.6.7,"Shesha.Enterprise-5.0.13,Shesha.Core-0.43.25",Updated to Shesha 0.43.25,,,2026-02-13 9:56am
+boxfusion.content-1.6.6,boxfusion.content,1.6.6,"Shesha.Core-0.43.24,Shesha.Enterprise-5.0.13",Updated to Shesha 0.43.24,,,2026-02-13 9:26am
+boxfusion.devexpressreporting-2.6.20,boxfusion.devexpressreporting,2.6.20,Shesha.Core-0.43.33,Updated to Shesha 0.43.33,,BoxStack-43,2026-05-07 2:12pm
+boxfusion.devexpressreporting-2.6.19,boxfusion.devexpressreporting,2.6.19,Shesha.Core-0.43.32,Updated to Shesha 0.43.32,,BoxStack-42,2026-04-30 4:27pm
+boxfusion.devexpressreporting-2.6.18,boxfusion.devexpressreporting,2.6.18,Shesha.Core-0.43.31,Updated to Shesha 0.43.31,,BoxStack-41,2026-04-23 4:53pm
+boxfusion.devexpressreporting-2.6.17,boxfusion.devexpressreporting,2.6.17,Shesha.Core-0.43.30,Updated to Shesha 0.43.30,,BoxStack-40,2026-04-20 10:47am
+boxfusion.devexpressreporting-2.6.16,boxfusion.devexpressreporting,2.6.16,Shesha.Core-0.43.28,Updated to Shesha 0.43.28,,BoxStack-39,2026-04-06 2:43pm
+boxfusion.devexpressreporting-2.6.15,boxfusion.devexpressreporting,2.6.15,Shesha.Core-0.43.27,Updated to Shesha 0.43.27,,BoxStack-38,2026-03-02 10:25am
+boxfusion.devexpressreporting-2.6.14,boxfusion.devexpressreporting,2.6.14,Shesha.Core-0.43.25,Updated to Shesha 0.43.25,,BoxStack-37,2026-02-10 4:42pm
+boxfusion.devexpressreporting-2.6.13,boxfusion.devexpressreporting,2.6.13,Shesha.Core-0.43.24,Updated to Shesha 0.43.24,,BoxStack-36,2026-01-16 3:46pm
+boxfusion.devexpressreporting-2.6.12,boxfusion.devexpressreporting,2.6.12,Shesha.Core-0.43.23,Updated to Shesha 0.43.23,,BoxStack-35,2026-01-14 9:52am
+boxfusion.devexpressreporting-2.6.11,boxfusion.devexpressreporting,2.6.11,Shesha.Core-0.43.21,Updated to Shesha 0.43.21,,BoxStack-34,2025-12-18 9:32am
+boxfusion.devexpressreporting-2.6.10,boxfusion.devexpressreporting,2.6.10,Shesha.Core-0.43.19,Updated to Shesha 0.43.19,,BoxStack-33,2025-12-10 10:40am
+boxfusion.devexpressreporting-2.6.9,boxfusion.devexpressreporting,2.6.9,Shesha.Core-0.43.18,Updated to Shesha 0.43.18,,BoxStack-32,2025-12-08 8:46am
+boxfusion.devexpressreporting-2.6.8,boxfusion.devexpressreporting,2.6.8,Shesha.Core-0.43.17,Updated to Shesha 0.43.17,,BoxStack-29,2025-11-13 8:43am
+boxfusion.devexpressreporting-2.6.7,boxfusion.devexpressreporting,2.6.7,Shesha.Core-0.43.16,Updated to Shesha 0.43.16,,BoxStack-28,2025-11-05 2:47pm
+boxfusion.devexpressreporting-2.6.6,boxfusion.devexpressreporting,2.6.6,,Updated to Shesha 0.43.15,,BoxStack-27,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.5,boxfusion.devexpressreporting,2.6.5,,Updated to Shesha 0.43.14,,BoxStack-26,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.4,boxfusion.devexpressreporting,2.6.4,,Updated to Shesha 0.43.13,,"BoxStack-24,BoxStack-23,BoxStack-22",2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.3,boxfusion.devexpressreporting,2.6.3,,Updated to Shesha 0.43.12,,BoxStack-21,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.2,boxfusion.devexpressreporting,2.6.2,,Updated to Shesha 0.43.11,,BoxStack-20,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.1,boxfusion.devexpressreporting,2.6.1,,Updated to Shesha 0.43.10,,BoxStack-19,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.6.0,boxfusion.devexpressreporting,2.6.0,,Updated to Shesha 0.43.6,,BoxStack-17,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.18,boxfusion.devexpressreporting,2.5.18,Shesha.Core-0.41.13,Updated to Shesha 0.41.13,,BoxStack-31,2025-11-26 3:23pm
+boxfusion.devexpressreporting-2.5.17,boxfusion.devexpressreporting,2.5.17,Shesha.Core-0.41.12,Updated to Shesha 0.41.12,,BoxStack-30,2025-11-18 9:27am
+boxfusion.devexpressreporting-2.5.15,boxfusion.devexpressreporting,2.5.15,,Updated to Shesha 0.41.11,,"BoxStack-25,BoxStack-18",2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.14,boxfusion.devexpressreporting,2.5.14,,Updated to Shesha 0.41.10,,BoxStack-16,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.13,boxfusion.devexpressreporting,2.5.13,,Updated to Shesha 0.41.9,,BoxStack-15,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.12,boxfusion.devexpressreporting,2.5.12,,Updated to Shesha 0.41.8,,BoxStack-14,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.11,boxfusion.devexpressreporting,2.5.11,,Updated to Shesha 0.41.7,,BoxStack-13,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.10,boxfusion.devexpressreporting,2.5.10,,Updated to Shesha 0.41.6,,"BoxStack-12,BoxStack-11",2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.9,boxfusion.devexpressreporting,2.5.9,,Updated to Shesha 0.41.5,,BoxStack-10,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.8,boxfusion.devexpressreporting,2.5.8,,Installed IDisposableAnalyzers,,,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.7,boxfusion.devexpressreporting,2.5.7,,Updated to Shesha version 0.41.3,,"BoxStack-9,BoxStack-8",2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.1,boxfusion.devexpressreporting,2.5.1,,Updated to Shesha version 0.41.2,,,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.5.0,boxfusion.devexpressreporting,2.5.0,,Updated to Shesha version 0.41.1,,"BoxStack-7,BoxStack-6",2025-10-17 9:19am
+boxfusion.devexpressreporting-2.4.0,boxfusion.devexpressreporting,2.4.0,,Updated to Shesha version 0.41.0,,BoxStack-5,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.3.0,boxfusion.devexpressreporting,2.3.0,,Updated to Shesha version 0.40.0,,BoxStack-4,2025-10-17 9:19am
+boxfusion.devexpressreporting-2.2.0,boxfusion.devexpressreporting,2.2.0,,Updated to Shesha version 0.39.3,,BoxStack-3,2025-10-17 9:13am
+boxfusion.devexpressreporting-2.1.0,boxfusion.devexpressreporting,2.1.0,,Updated to Shesha version 0.39.2,,BoxStack-2,2025-10-17 9:13am
+boxfusion.devexpressreporting-2.0.0,boxfusion.devexpressreporting,2.0.0,,Updated to Shesha version 0.39.1,,BoxStack-1,2025-10-17 9:13am
+Boxfusion.PublicPortal-0.9.1,Boxfusion.PublicPortal,0.9.1,Shesha.Core-0.44.3,,,,2026-01-14 4:23pm
+Boxfusion.PublicPortal-0.9.0,Boxfusion.PublicPortal,0.9.0,Shesha.Core-0.44.1,,,,2026-01-14 4:22pm
+Boxfusion.PublicPortal-0.8.23,Boxfusion.PublicPortal,0.8.23,Shesha.Core-0.43.33,,,BoxStack-43,2026-05-07 2:07pm
+Boxfusion.PublicPortal-0.8.22,Boxfusion.PublicPortal,0.8.22,Shesha.Core-0.43.32,,,BoxStack-42,2026-04-30 4:19pm
+Boxfusion.PublicPortal-0.8.21,Boxfusion.PublicPortal,0.8.21,Shesha.Core-0.43.31,,,BoxStack-41,2026-04-23 4:53pm
+Boxfusion.PublicPortal-0.8.20,Boxfusion.PublicPortal,0.8.20,Shesha.Core-0.43.30,,,BoxStack-40,2026-04-20 10:48am
+Boxfusion.PublicPortal-0.8.19,Boxfusion.PublicPortal,0.8.19,Shesha.Core-0.43.28,,,BoxStack-39,2026-04-07 10:51am
+Boxfusion.PublicPortal-0.8.18,Boxfusion.PublicPortal,0.8.18,Shesha.Core-0.43.27,,,BoxStack-38,2026-03-02 10:25am
+Boxfusion.PublicPortal-0.8.16,Boxfusion.PublicPortal,0.8.16,Shesha.Core-0.43.25,,,BoxStack-37,2026-02-10 4:42pm
+Boxfusion.PublicPortal-0.8.15,Boxfusion.PublicPortal,0.8.15,Shesha.Core-0.43.24,,,BoxStack-36,2026-01-16 3:45pm
+Boxfusion.PublicPortal-0.8.14,Boxfusion.PublicPortal,0.8.14,Shesha.Core-0.43.23,,,BoxStack-35,2026-01-14 9:49am
+Boxfusion.PublicPortal-0.8.13,Boxfusion.PublicPortal,0.8.13,Shesha.Core-0.43.21,,,BoxStack-34,2025-12-17 5:02pm
+Boxfusion.PublicPortal-0.8.12,Boxfusion.PublicPortal,0.8.12,Shesha.Core-0.43.19,,,BoxStack-33,2025-12-10 12:13pm
+Boxfusion.PublicPortal-0.8.11,Boxfusion.PublicPortal,0.8.11,Shesha.Core-0.43.18,,,BoxStack-32,2025-12-08 8:45am
+Boxfusion.PublicPortal-0.8.10,Boxfusion.PublicPortal,0.8.10,Shesha.Core-0.43.17,,,BoxStack-29,2025-11-13 9:30am
+Boxfusion.PublicPortal-0.8.9,Boxfusion.PublicPortal,0.8.9,Shesha.Core-0.43.16,,,BoxStack-28,2025-11-06 9:25am
+Boxfusion.PublicPortal-0.8.7,Boxfusion.PublicPortal,0.8.7,Shesha.Core-0.43.15,,,BoxStack-27,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.6,Boxfusion.PublicPortal,0.8.6,Shesha.Core-0.43.14,,,BoxStack-26,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.5,Boxfusion.PublicPortal,0.8.5,Shesha.Core-0.43.13,,,"BoxStack-24,BoxStack-23,BoxStack-22",2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.4,Boxfusion.PublicPortal,0.8.4,Shesha.Core-0.43.12,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.3,Boxfusion.PublicPortal,0.8.3,Shesha.Core-0.43.11,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.2,Boxfusion.PublicPortal,0.8.2,Shesha.Core-0.43.10,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.1,Boxfusion.PublicPortal,0.8.1,Shesha.Core-0.43.7,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.8.0,Boxfusion.PublicPortal,0.8.0,Shesha.Core-0.43.6,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.12,Boxfusion.PublicPortal,0.7.12,Shesha.Core-0.41.13,,,BoxStack-31,2025-11-26 3:22pm
+Boxfusion.PublicPortal-0.7.11,Boxfusion.PublicPortal,0.7.11,Shesha.Core-0.41.12,,,BoxStack-30,2025-11-18 9:27am
+Boxfusion.PublicPortal-0.7.10,Boxfusion.PublicPortal,0.7.10,Shesha.Core-0.41.11,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.9,Boxfusion.PublicPortal,0.7.9,Shesha.Core-0.41.10,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.8,Boxfusion.PublicPortal,0.7.8,Shesha.Core-0.41.9,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.7,Boxfusion.PublicPortal,0.7.7,Shesha.Core-0.41.8,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.6,Boxfusion.PublicPortal,0.7.6,Shesha.Core-0.41.7,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.5,Boxfusion.PublicPortal,0.7.5,Shesha.Core-0.41.6,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.4,Boxfusion.PublicPortal,0.7.4,Shesha.Core-0.41.5,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.3,Boxfusion.PublicPortal,0.7.3,Shesha.Core-0.41.4,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.2,Boxfusion.PublicPortal,0.7.2,Shesha.Core-0.41.3,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.1,Boxfusion.PublicPortal,0.7.1,Shesha.Core-0.41.2,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.7.0,Boxfusion.PublicPortal,0.7.0,Shesha.Core-0.41.1,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.6.0,Boxfusion.PublicPortal,0.6.0,Shesha.Core-0.41.0,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.4.0,Boxfusion.PublicPortal,0.4.0,Shesha.Core-0.40.0,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.3.0,Boxfusion.PublicPortal,0.3.0,Shesha.Core-0.39.3,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.2.5,Boxfusion.PublicPortal,0.2.5,Shesha.Core-0.39.2,,,,2025-10-17 9:30am
+Boxfusion.PublicPortal-0.1.0,Boxfusion.PublicPortal,0.1.0,Shesha.Core-0.39.1,,,,2025-10-17 9:29am
+Boxfusion.PublicPortal-,Boxfusion.PublicPortal,,,,,,2026-05-07 2:12pm
+Boxfusion.Sheshamobile-1.3.7,Boxfusion.Sheshamobile,1.3.7,"Shesha.Core-0.43.25,Shesha.Enterprise-5.0.14",Updated to Shesha 0.43.24,,,2026-02-13 10:02am
+Boxfusion.Sheshamobile-1.3.6,Boxfusion.Sheshamobile,1.3.6,"Shesha.Core-0.43.24,Shesha.Enterprise-5.0.13",Updated to Shesha 0.43.24,,,2026-02-13 9:59am
+BoxStack-43,BoxStack,43,"Shesha.Core-0.43.33,Shesha.Enterprise-5.0.20,Boxfusion.PublicPortal-0.8.23,boxfusion.devexpressreporting-2.6.20",,,,2026-05-07 2:13pm
+BoxStack-42,BoxStack,42,"Shesha.Core-0.43.32,Shesha.Enterprise-5.0.19,Boxfusion.PublicPortal-0.8.22,boxfusion.devexpressreporting-2.6.19",,,,2026-04-30 4:16pm
+BoxStack-41,BoxStack,41,"Shesha.Core-0.43.31,Boxfusion.PublicPortal-0.8.21,boxfusion.devexpressreporting-2.6.18,Shesha.Enterprise-5.0.18",,,,2026-04-23 4:58pm
+BoxStack-40,BoxStack,40,"Shesha.Core-0.43.30,Boxfusion.PublicPortal-0.8.20,boxfusion.devexpressreporting-2.6.17,Shesha.Enterprise-5.0.17",,,,2026-04-20 10:50am
+BoxStack-39,BoxStack,39,"Shesha.Core-0.43.28,boxfusion.devexpressreporting-2.6.16,Shesha.Enterprise-5.0.16,Boxfusion.PublicPortal-0.8.19",,,,2026-04-07 10:51am
+BoxStack-38,BoxStack,38,"Shesha.Core-0.43.27,boxfusion.devexpressreporting-2.6.15,Shesha.Enterprise-5.0.15,Boxfusion.PublicPortal-0.8.18",,,,2026-03-02 10:27am
+BoxStack-37,BoxStack,37,"Shesha.Core-0.43.25,boxfusion.devexpressreporting-2.6.14,Shesha.Enterprise-5.0.14,Boxfusion.PublicPortal-0.8.16",,,,2026-02-10 4:45pm
+BoxStack-36,BoxStack,36,"Shesha.Core-0.43.24,boxfusion.devexpressreporting-2.6.13,Shesha.Enterprise-5.0.13,Boxfusion.PublicPortal-0.8.15",,,,2026-01-16 3:48pm
+BoxStack-35,BoxStack,35,"Shesha.Core-0.43.23,boxfusion.devexpressreporting-2.6.12,Shesha.Enterprise-5.0.12,Boxfusion.PublicPortal-0.8.14",,,,2026-01-14 9:53am
+BoxStack-34,BoxStack,34,"Shesha.Core-0.43.21,boxfusion.devexpressreporting-2.6.11,Shesha.Enterprise-5.0.11,Boxfusion.PublicPortal-0.8.13",,,,2025-12-18 9:33am
+BoxStack-33,BoxStack,33,"Shesha.Core-0.43.19,boxfusion.devexpressreporting-2.6.10,Shesha.Enterprise-5.0.10,Boxfusion.PublicPortal-0.8.12",,,,2025-12-10 12:14pm
+BoxStack-32,BoxStack,32,"Shesha.Core-0.43.18,boxfusion.devexpressreporting-2.6.9,Shesha.Enterprise-5.0.9,Boxfusion.PublicPortal-0.8.11",,,,2025-12-08 8:46am
+BoxStack-31,BoxStack,31,"Shesha.Core-0.41.13,boxfusion.devexpressreporting-2.5.18,Shesha.Enterprise-2.4.21,Boxfusion.PublicPortal-0.7.12",,,,2025-11-26 4:53pm
+BoxStack-30,BoxStack,30,"Shesha.Core-0.41.12,boxfusion.devexpressreporting-2.5.17,Shesha.Enterprise-2.4.20,Shesha.Enterprise-5.0.7,Boxfusion.PublicPortal-0.7.11",,,,2025-11-18 9:28am
+BoxStack-29,BoxStack,29,"Shesha.Core-0.43.17,boxfusion.devexpressreporting-2.6.8,Shesha.Enterprise-5.0.7,Boxfusion.PublicPortal-0.8.10",,,,2025-11-13 9:30am
+BoxStack-28,BoxStack,28,"Shesha.Core-0.43.16,boxfusion.devexpressreporting-2.6.7,Shesha.Enterprise-5.0.6,Boxfusion.PublicPortal-0.8.9",,,,2025-11-05 2:48pm
+BoxStack-27,BoxStack,27,"Shesha.Core-0.43.15,Shesha.Enterprise-5.0.4,Boxfusion.PublicPortal-0.8.7,boxfusion.devexpressreporting-2.6.6",,,,2025-10-20 12:07pm
+BoxStack-26,BoxStack,26,"boxfusion.devexpressreporting-2.6.5,Shesha.Enterprise-5.0.1,Boxfusion.PublicPortal-0.8.6,Shesha.Core-0.43.14",,,,2025-10-17 9:34am
+BoxStack-25,BoxStack,25,"Shesha.Core-0.41.11,Shesha.Enterprise-2.4.19,boxfusion.devexpressreporting-2.5.15",,,,2025-10-17 9:34am
+BoxStack-24,BoxStack,24,"boxfusion.devexpressreporting-2.6.4,Shesha.Enterprise-5.0.0,Boxfusion.PublicPortal-0.8.5,Shesha.Core-0.43.13",,,,2025-10-17 9:34am
+BoxStack-23,BoxStack,23,"Shesha.Core-0.43.13,Shesha.Enterprise-3.0.3,boxfusion.devexpressreporting-2.6.4,Boxfusion.PublicPortal-0.8.5",,,,2025-10-17 9:34am
+BoxStack-22,BoxStack,22,"Shesha.Core-0.43.13,Shesha.Enterprise-3.0.2,boxfusion.devexpressreporting-2.6.4,Boxfusion.PublicPortal-0.8.5",,,,2025-10-17 9:34am
+BoxStack-21,BoxStack,21,"Shesha.Core-0.43.12,Shesha.Enterprise-2.5.10,boxfusion.devexpressreporting-2.6.3",,,,2025-10-17 9:34am
+BoxStack-20,BoxStack,20,"Shesha.Core-0.43.11,Shesha.Enterprise-2.5.9,boxfusion.devexpressreporting-2.6.2",,,,2025-10-17 9:34am
+BoxStack-19,BoxStack,19,"Shesha.Core-0.43.10,Shesha.Enterprise-2.5.5,boxfusion.devexpressreporting-2.6.1",,,,2025-10-17 9:34am
+BoxStack-18,BoxStack,18,"Shesha.Core-0.41.11,Shesha.Enterprise-2.4.17,boxfusion.devexpressreporting-2.5.15",,,,2025-10-17 9:34am
+BoxStack-17,BoxStack,17,"Shesha.Core-0.43.6,Shesha.Enterprise-2.5.0,boxfusion.devexpressreporting-2.6.0",,,,2025-10-17 9:34am
+BoxStack-16,BoxStack,16,"Shesha.Core-0.41.10,Shesha.Enterprise-2.4.16,boxfusion.devexpressreporting-2.5.14",,,,2025-10-17 9:34am
+BoxStack-15,BoxStack,15,"Shesha.Core-0.41.9,Shesha.Enterprise-2.4.15,boxfusion.devexpressreporting-2.5.13",,,,2025-10-17 9:34am
+BoxStack-14,BoxStack,14,"Shesha.Core-0.41.8,Shesha.Enterprise-2.4.14,boxfusion.devexpressreporting-2.5.12",,,,2025-10-17 9:34am
+BoxStack-13,BoxStack,13,"Shesha.Core-0.41.7,Shesha.Enterprise-2.4.13,boxfusion.devexpressreporting-2.5.11",,,,2025-10-17 9:34am
+BoxStack-12,BoxStack,12,"Shesha.Core-0.41.6,Shesha.Enterprise-2.4.11,boxfusion.devexpressreporting-2.5.10",,,,2025-10-17 9:34am
+BoxStack-11,BoxStack,11,"Shesha.Core-0.41.6,Shesha.Enterprise-2.4.9,boxfusion.devexpressreporting-2.5.10",,,,2025-10-17 9:34am
+BoxStack-10,BoxStack,10,"Shesha.Core-0.41.5,Shesha.Enterprise-2.4.8,boxfusion.devexpressreporting-2.5.9",,,,2025-10-17 9:34am
+BoxStack-9,BoxStack,9,"Shesha.Core-0.41.4,Shesha.Enterprise-2.4.5,boxfusion.devexpressreporting-2.5.7",,,,2025-10-17 9:34am
+BoxStack-8,BoxStack,8,"Shesha.Core-0.41.3,Shesha.Enterprise-2.4.4,boxfusion.devexpressreporting-2.5.7",,,,2025-10-17 9:34am
+BoxStack-7,BoxStack,7,"Shesha.Core-0.41.2,Shesha.Enterprise-2.4.2,boxfusion.devexpressreporting-2.5.0",,,,2025-10-17 9:34am
+BoxStack-6,BoxStack,6,"Shesha.Core-0.41.1,Shesha.Enterprise-2.4.0,boxfusion.devexpressreporting-2.5.0",,,,2025-10-17 9:34am
+BoxStack-5,BoxStack,5,"Shesha.Core-0.41.0,boxfusion.devexpressreporting-2.4.0",,,,2025-10-17 9:34am
+BoxStack-4,BoxStack,4,"Shesha.Core-0.40.0,Shesha.Enterprise-2.2.0,boxfusion.devexpressreporting-2.3.0",,,,2025-10-17 9:34am
+BoxStack-3,BoxStack,3,"Shesha.Core-0.39.3,Shesha.Enterprise-2.1.1,boxfusion.devexpressreporting-2.2.0",,,,2025-10-17 9:34am
+BoxStack-2,BoxStack,2,"Shesha.Core-0.39.2,Shesha.Enterprise-2.0.9,boxfusion.devexpressreporting-2.1.0",,,,2025-10-17 9:34am
+BoxStack-1,BoxStack,1,"Shesha.Core-0.39.1,Shesha.Enterprise-1.9.3,boxfusion.devexpressreporting-2.0.0",,,,2025-10-17 9:34am
+Shesha.Core-0.44.3,Shesha.Core,0.44.3,,,,Boxfusion.PublicPortal-0.9.1,2026-01-14 4:21pm
+Shesha.Core-0.44.1,Shesha.Core,0.44.1,,"Fixed async functions, notifications, ReadOnly Button Group. Moved calendar component",,Boxfusion.PublicPortal-0.9.0,2025-11-19 1:30pm
+Shesha.Core-0.44.0,Shesha.Core,0.44.0,,"Updated property panels
+",,Shesha.Enterprise-6.0.0,2025-10-20 12:13pm
+Shesha.Core-0.43.33,Shesha.Core,0.43.33,,"Email validation, table view action, external Authentication fixes; Tree optimisation",,"Shesha.Enterprise-5.0.20,boxfusion.devexpressreporting-2.6.20,Boxfusion.PublicPortal-0.8.23,BoxStack-43",2026-05-07 2:07pm
+Shesha.Core-0.43.32,Shesha.Core,0.43.32,,"Fixed FileList owner ID, Enforce default ""From"" address for SendGrid, Fixed fetching of nested entities via GQL; External authentification clean up",,"Shesha.Enterprise-5.0.19,BoxStack-42,Boxfusion.PublicPortal-0.8.22,boxfusion.devexpressreporting-2.6.19",2026-04-30 3:04pm
+Shesha.Core-0.43.31,Shesha.Core,0.43.31,,Performance optimizations,,"Shesha.Enterprise-5.0.18,Boxfusion.PublicPortal-0.8.21,boxfusion.devexpressreporting-2.6.18,BoxStack-41",2026-04-23 4:51pm
+Shesha.Core-0.43.30,Shesha.Core,0.43.30,,"Fixed loader position, Role Permissions & Visibility Update, Excessive RAM Consumption on GetAll Endpoint, Production error",,"Shesha.Enterprise-5.0.17,Boxfusion.PublicPortal-0.8.20,boxfusion.devexpressreporting-2.6.17,BoxStack-40",2026-04-17 4:00pm
+Shesha.Core-0.43.28,Shesha.Core,0.43.28,,"New horizontal scaling, Form Blocking Loader, Security Improvements; Fixed Quick Search, DataTable Filtering and logout",,"Shesha.Enterprise-5.0.16,boxfusion.devexpressreporting-2.6.16,Boxfusion.PublicPortal-0.8.19,BoxStack-39",2026-04-06 2:35pm
+Shesha.Core-0.43.27,Shesha.Core,0.43.27,,"Auto logout, Back navigation in table; Fixed OnBeforeRowReorder validation logic, User details form fixes",,"Shesha.Enterprise-5.0.15,Boxfusion.PublicPortal-0.8.18,boxfusion.devexpressreporting-2.6.15,BoxStack-38",2026-03-02 10:19am
+Shesha.Core-0.43.25,Shesha.Core,0.43.25,,Enforce password update on first login; Custom footer for Wizard; New Accent property for Panel,,"boxfusion.devexpressreporting-2.6.14,Boxfusion.PublicPortal-0.8.16,Shesha.Enterprise-5.0.14,BoxStack-37,Shesha.Enterprise-5.0.13,boxfusion.content-1.6.7,Boxfusion.Sheshamobile-1.3.7",2026-02-10 4:39pm
+Shesha.Core-0.43.24,Shesha.Core,0.43.24,,Updating EasyNetQ package version to 8.0.1,,"Boxfusion.PublicPortal-0.8.15,boxfusion.devexpressreporting-2.6.13,BoxStack-36,boxfusion.content-1.6.6,Boxfusion.Sheshamobile-1.3.6",2026-01-16 3:40pm
+Shesha.Core-0.43.23,Shesha.Core,0.43.23,,FileList enchancement,,"Shesha.Enterprise-5.0.12,Boxfusion.PublicPortal-0.8.14,boxfusion.devexpressreporting-2.6.12,BoxStack-35",2026-01-14 9:45am
+Shesha.Core-0.43.21,Shesha.Core,0.43.21,,Fixed re-renders,,"Shesha.Enterprise-5.0.11,Boxfusion.PublicPortal-0.8.13,boxfusion.devexpressreporting-2.6.11,BoxStack-34",2025-12-17 5:00pm
+Shesha.Core-0.43.19,Shesha.Core,0.43.19,,added GetCurrentPersonAsync()/GetCurrentPersonOrNullAsync() to IShaSession,,"Shesha.Enterprise-5.0.10,boxfusion.devexpressreporting-2.6.10,Boxfusion.PublicPortal-0.8.12,BoxStack-33",2025-12-10 10:36am
+Shesha.Core-0.43.18,Shesha.Core,0.43.18,,Fixed multi upload files,,"Shesha.Enterprise-5.0.9,Boxfusion.PublicPortal-0.8.11,boxfusion.devexpressreporting-2.6.9,BoxStack-32",2025-12-05 4:45pm
+Shesha.Core-0.43.17,Shesha.Core,0.43.17,,Exposed dynamicItem variable on Profile Dropdown. Fixed Profile dropdown component ignores Hide When Empty and Hide properties,,"boxfusion.devexpressreporting-2.6.8,Shesha.Enterprise-5.0.7,Boxfusion.PublicPortal-0.8.10,BoxStack-29,Shesha.Enterprise-5.0.8",2025-11-13 8:23am
+Shesha.Core-0.43.16,Shesha.Core,0.43.16,,"New settings for Wizard on step level, new Phone number component. Fixes: FileList, File upload through wizard, File download with uppercases, Notifications with attachment, code editor loading, DataTable Auto Save Mode delays ",,"Shesha.Enterprise-5.0.5,Shesha.Enterprise-5.0.6,boxfusion.devexpressreporting-2.6.7,BoxStack-28,Boxfusion.PublicPortal-0.8.9",2025-11-05 1:17pm
+Shesha.Core-0.43.15,Shesha.Core,0.43.15,,New row reordering events on DataTable. Fixed: Disable Refresh function returns initial evaluation and does not update after state changes; DataTable Display. Edit and Create Component Logging Returns Form Data Instead of Row Data,,"Shesha.Enterprise-5.0.4,Shesha.Enterprise-5.0.3,Boxfusion.PublicPortal-0.8.7,BoxStack-27",2025-10-17 9:23am
+Shesha.Core-0.43.14,Shesha.Core,0.43.14,,"New: FileList Download tracking, DataList supports to save with FormData. Fixed: Number doesn't allow saving null value; export forms; job's deactivation; query builder saving script",,"Shesha.Enterprise-5.0.2,Shesha.Enterprise-5.0.1,Boxfusion.PublicPortal-0.8.6,BoxStack-26",2025-10-17 9:23am
+Shesha.Core-0.43.13,Shesha.Core,0.43.13,,Fixed Data Table 'Customize Columns' JS Option,,"Shesha.Enterprise-5.0.0,Shesha.Enterprise-3.0.2,Shesha.Enterprise-3.0.3,Shesha.Enterprise-2.5.11,Shesha.Enterprise-2.5.12,Shesha.Enterprise-2.5.13,Boxfusion.PublicPortal-0.8.5,BoxStack-24,BoxStack-23,BoxStack-22",2025-10-17 9:23am
+Shesha.Core-0.43.12,Shesha.Core,0.43.12,,"Added onChange event for Radio buttons, warning message for delete action for File and FileList, options for DataTable filtration using DateTime, Edit/Delete Notes only by author. Fixed reordering in DataTable, time picker fix",,"Shesha.Enterprise-3.0.1,Shesha.Enterprise-2.5.10,Boxfusion.PublicPortal-0.8.4,BoxStack-21",2025-10-17 9:23am
+Shesha.Core-0.43.11,Shesha.Core,0.43.11,,GenericEntityReferences support for JsonEntity. Fixed support of custom column names in SoftDelete filter for one-to-may relations,,"Shesha.Enterprise-3.0.0,Shesha.Enterprise-2.5.7,Shesha.Enterprise-2.5.8,Shesha.Enterprise-2.5.9,Boxfusion.PublicPortal-0.8.3,BoxStack-20",2025-10-17 9:23am
+Shesha.Core-0.43.10,Shesha.Core,0.43.10,,Added property to allow custom endpoint when reordering DataTable rows. Additional variable to the property Custom Visibility on the DataTable. Exposed DateWrapper component. Autocomplete fix,,"Shesha.Enterprise-2.5.5,Boxfusion.PublicPortal-0.8.2,BoxStack-19",2025-10-17 9:23am
+Shesha.Core-0.43.7,Shesha.Core,0.43.7,,"Added the event On Row Deleted on DataTable and DataList components
+Custom buttons on the modal form doesn't take into account JS code
+Fixed maximum number is 0 validation
+",,"Shesha.Enterprise-2.5.4,Boxfusion.PublicPortal-0.8.1",2025-10-17 9:23am
+Shesha.Core-0.43.6,Shesha.Core,0.43.6,,Buttons group fixes,,"Shesha.Enterprise-2.5.3,Shesha.Enterprise-2.5.1,Shesha.Enterprise-2.5.0,Shesha.Enterprise-2.5.2,Boxfusion.PublicPortal-0.8.0,BoxStack-17",2025-10-17 9:23am
+Shesha.Core-0.41.13,Shesha.Core,0.41.13,,Fixed Handle Succes/Fail on Modal Form Submit,,"Boxfusion.PublicPortal-0.7.12,Shesha.Enterprise-2.4.21,boxfusion.devexpressreporting-2.5.18,BoxStack-31",2025-11-26 3:21pm
+Shesha.Core-0.41.12,Shesha.Core,0.41.12,,Blacklisting and configurable expiration time for access tokens,,"Shesha.Enterprise-2.4.20,Boxfusion.PublicPortal-0.7.11,BoxStack-30,boxfusion.devexpressreporting-2.5.17",2025-11-18 9:23am
+Shesha.Core-0.41.11,Shesha.Core,0.41.11,,Added property to allow custom endpoint when reordering DataTable rows. Fixed Autocomplete component breaks when using URL Data Source,,"Shesha.Enterprise-2.4.19,Shesha.Enterprise-2.4.17,Shesha.Enterprise-2.4.18,Boxfusion.PublicPortal-0.7.10,BoxStack-25,BoxStack-18",2025-10-17 9:23am
+Shesha.Core-0.41.10,Shesha.Core,0.41.10,,Added On Row Delete event for DataTable and DataList components,,"Shesha.Enterprise-2.4.16,Boxfusion.PublicPortal-0.7.9,BoxStack-16",2025-10-17 9:23am
+Shesha.Core-0.41.9,Shesha.Core,0.41.9,,Added Independent Notes Instances on Same Form,,"Shesha.Enterprise-2.4.15,Boxfusion.PublicPortal-0.7.8,BoxStack-15",2025-10-17 9:23am
+Shesha.Core-0.41.8,Shesha.Core,0.41.8,,Added user profile form info,,"Shesha.Enterprise-2.4.14,Boxfusion.PublicPortal-0.7.7,BoxStack-14",2025-10-17 9:23am
+Shesha.Core-0.41.7,Shesha.Core,0.41.7,,,,"Shesha.Enterprise-2.4.13,Boxfusion.PublicPortal-0.7.6,BoxStack-13",2025-10-17 9:23am
+Shesha.Core-0.41.6,Shesha.Core,0.41.6,,Implemented caching for settings to improve performance,,"Shesha.Enterprise-2.4.9,Boxfusion.PublicPortal-0.7.5,BoxStack-12,BoxStack-11",2025-10-17 9:23am
+Shesha.Core-0.41.5,Shesha.Core,0.41.5,,Installed Microsoft.VisualStudio.Threading.Aanlyzers and AsyncFixer. Fixed handing issues in async code occurring in some specific cases,,"Shesha.Enterprise-2.4.8,Boxfusion.PublicPortal-0.7.4,BoxStack-10",2025-10-17 9:23am
+Shesha.Core-0.41.4,Shesha.Core,0.41.4,,Installed IDisposableAnalyzers and fixed memory leaks,,"Shesha.Enterprise-2.4.5,Boxfusion.PublicPortal-0.7.3,BoxStack-9",2025-10-17 9:23am
+Shesha.Core-0.41.3,Shesha.Core,0.41.3,,Improving performance system,,"Shesha.Enterprise-2.4.4,Boxfusion.PublicPortal-0.7.2,BoxStack-8",2025-10-17 9:23am
+Shesha.Core-0.41.2,Shesha.Core,0.41.2,,Updated migrator extensions,,"Shesha.Enterprise-2.4.2,Boxfusion.PublicPortal-0.7.1,BoxStack-7",2025-10-17 9:23am
+Shesha.Core-0.41.1,Shesha.Core,0.41.1,,Added cc and senderText properties on notificationMessage,,"Shesha.Enterprise-2.4.0,Boxfusion.PublicPortal-0.7.0,BoxStack-6",2025-10-17 9:23am
+Shesha.Core-0.41.0,Shesha.Core,0.41.0,,Enhanced the notification framework and allowed dynamic items to be configurable,,"Boxfusion.PublicPortal-0.6.0,BoxStack-5",2025-10-17 9:23am
+Shesha.Core-0.40.0,Shesha.Core,0.40.0,,"New Components: Charts, Kanban, Chevron",,"Shesha.Enterprise-2.2.7,Shesha.Enterprise-2.2.0,Boxfusion.PublicPortal-0.4.0,BoxStack-4",2025-10-17 9:23am
+Shesha.Core-0.39.3,Shesha.Core,0.39.3,,Hotfix,,"Shesha.Enterprise-2.1.1,Boxfusion.PublicPortal-0.3.0,BoxStack-3",2025-10-17 9:23am
+Shesha.Core-0.39.2,Shesha.Core,0.39.2,,Hotfix,,"Shesha.Enterprise-2.0.9,Boxfusion.PublicPortal-0.2.5,BoxStack-2",2025-10-17 9:23am
+Shesha.Core-0.39.1,Shesha.Core,0.39.1,,Hotfix,,"Shesha.Enterprise-1.9.3,Boxfusion.PublicPortal-0.1.0,BoxStack-1",2025-10-17 9:23am
+Shesha.Core-0.39.0,Shesha.Core,0.39.0,,,,,2025-10-17 9:20am
+Shesha.Enterprise-6.0.0,Shesha.Enterprise,6.0.0,Shesha.Core-0.44.0,"Updated to the latest 0.44.0.Fixed questionnaire, qquestionnaire response, tree, checklist components. New Consolidated Map",,,2025-10-20 12:14pm
+Shesha.Enterprise-5.0.20,Shesha.Enterprise,5.0.20,Shesha.Core-0.43.33,"Updated to the latest 0.43.33. Fixed open/close side menu, ""Created by"" timestamp for workflow header; added Spell check for Content Field; Tree optimisation",,BoxStack-43,2026-05-07 2:09pm
+Shesha.Enterprise-5.0.19,Shesha.Enterprise,5.0.19,Shesha.Core-0.43.32,"Updated to the latest 0.43.32. Optimisation of Workflow engine, GetAvailableAppointments, tree component",,BoxStack-42,2026-04-30 3:06pm
+Shesha.Enterprise-5.0.18,Shesha.Enterprise,5.0.18,Shesha.Core-0.43.31,Updated to the latest 0.43.31. Showing SLA Days on Workflow Header,,BoxStack-41,2026-04-23 4:52pm
+Shesha.Enterprise-5.0.17,Shesha.Enterprise,5.0.17,Shesha.Core-0.43.30,"Updated to the latest 0.43.30. Added SLA indicator, progress indicator shows decision label, fixed position loading, changes for Content tab component",,BoxStack-40,2026-04-17 4:02pm
+Shesha.Enterprise-5.0.16,Shesha.Enterprise,5.0.16,Shesha.Core-0.43.28,"Updated to the latest 0.43.28. Fixed Search under organisation, Checklists import, side menu opening/closing, Assign multiple users to a single instance User Task, missing @uiw/react-signature dependency",,BoxStack-39,2026-04-06 2:37pm
+Shesha.Enterprise-5.0.15,Shesha.Enterprise,5.0.15,Shesha.Core-0.43.27,"Updated to the latest 0.43.27. New signature component, new setting for SLA reminder",,BoxStack-38,2026-03-02 10:22am
+Shesha.Enterprise-5.0.14,Shesha.Enterprise,5.0.14,Shesha.Core-0.43.25,Updated to the latest Shesha 0.43.25. Fixed organisation positions forms; New Profile settings page; New Details kebab menu on the workflow action header,,"BoxStack-37,Shesha.Enterprise-5.0.13,Boxfusion.Sheshamobile-1.3.7",2026-02-10 4:43pm
+Shesha.Enterprise-5.0.13,Shesha.Enterprise,5.0.13,"Shesha.Core-0.43.25,Shesha.Enterprise-5.0.14",Updated to the latest 0.43.24. Implemented new custom action for workflow audit; workflow step header with friendly workflow name,,"BoxStack-36,boxfusion.content-1.6.6,boxfusion.content-1.6.7,Boxfusion.Sheshamobile-1.3.6",2026-01-16 3:42pm
+Shesha.Enterprise-5.0.12,Shesha.Enterprise,5.0.12,Shesha.Core-0.43.23,Updated to 0.43.23. Fixed the structured list items not deleting and onblur not working or saving on the richtext editor,,BoxStack-35,2026-01-14 9:46am
+Shesha.Enterprise-5.0.11,Shesha.Enterprise,5.0.11,Shesha.Core-0.43.21,Updated to the latest 0.43.21. First version of referral support,,BoxStack-34,2025-12-17 5:01pm
+Shesha.Enterprise-5.0.10,Shesha.Enterprise,5.0.10,Shesha.Core-0.43.19,Updated to 0.43.19. Fixed organisation positions forms; New out-of-office delegations,,BoxStack-33,2025-12-10 10:39am
+Shesha.Enterprise-5.0.9,Shesha.Enterprise,5.0.9,Shesha.Core-0.43.18,Updated to the latest 0.43.18,,BoxStack-32,2025-12-05 4:45pm
+Shesha.Enterprise-5.0.8,Shesha.Enterprise,5.0.8,Shesha.Core-0.43.17,"Removed securityClearance, added JobLevel and ActiveAppointment to Employee; fixed draft items in Incoming",,,2025-11-25 11:44am
+Shesha.Enterprise-5.0.7,Shesha.Enterprise,5.0.7,Shesha.Core-0.43.17,Updated to the latest 0.43.17,,"BoxStack-29,BoxStack-30",2025-11-13 9:29am
+Shesha.Enterprise-5.0.6,Shesha.Enterprise,5.0.6,Shesha.Core-0.43.16,Fixed image generation in PDF document,,BoxStack-28,2025-11-05 2:45pm
+Shesha.Enterprise-5.0.5,Shesha.Enterprise,5.0.5,Shesha.Core-0.43.16,Updated to the latest 0.43.16,,,2025-11-05 2:45pm
+Shesha.Enterprise-5.0.4,Shesha.Enterprise,5.0.4,Shesha.Core-0.43.15,"Enable Dynamic Expressions for User Task Name, fixed contexts and ContentField component",,BoxStack-27,2025-10-17 9:24am
+Shesha.Enterprise-5.0.3,Shesha.Enterprise,5.0.3,Shesha.Core-0.43.15,"Update to Shesha 0.43.15. New components: ContentField, BreadCrumb, StructuredList",,,2025-10-17 9:24am
+Shesha.Enterprise-5.0.2,Shesha.Enterprise,5.0.2,Shesha.Core-0.43.14,Fixed handling of multi-instance body for referrals,,,2025-10-17 9:24am
+Shesha.Enterprise-5.0.1,Shesha.Enterprise,5.0.1,Shesha.Core-0.43.14,Update to the latest 0.43.14 Shesha. New Highlight Date Range Layer in Calendar. Fixed Workflow for Service Tasks. Fixed Account invitation. New DiffViewer component,,BoxStack-26,2025-10-17 9:24am
+Shesha.Enterprise-5.0.0,Shesha.Enterprise,5.0.0,Shesha.Core-0.43.13,Copy of 2.5.13 + recalculate workflow assignees,,BoxStack-24,2025-10-17 9:24am
+Shesha.Enterprise-3.0.3,Shesha.Enterprise,3.0.3,Shesha.Core-0.43.13,Calendar fix,,BoxStack-23,2025-10-17 9:24am
+Shesha.Enterprise-3.0.2,Shesha.Enterprise,3.0.2,Shesha.Core-0.43.13,Update to latest 0.43.13. Fixed step order for workflow and crash for workflow start using configurable action,,BoxStack-22,2025-10-17 9:24am
+Shesha.Enterprise-3.0.1,Shesha.Enterprise,3.0.1,Shesha.Core-0.43.12,"Update to the latest 0.43.12 Shesha, fixed template import, progress indicator, calendar",,,2025-10-17 9:24am
+Shesha.Enterprise-3.0.0,Shesha.Enterprise,3.0.0,Shesha.Core-0.43.11,Copy of 2.5 branch,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.13,Shesha.Enterprise,2.5.13,Shesha.Core-0.43.13,Fixed null handling in the UserTaskWorkflowPropertyAssignee,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.12,Shesha.Enterprise,2.5.12,Shesha.Core-0.43.13,Calendar fix,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.11,Shesha.Enterprise,2.5.11,Shesha.Core-0.43.13,Update to latest 0.43.13. Fixed step order for workflow and crash for workflow start using configurable action,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.10,Shesha.Enterprise,2.5.10,Shesha.Core-0.43.12,"Update to the latest 0.43.12 Shesha, fixed template import, progress indicator, calendar",,BoxStack-21,2025-10-17 9:24am
+Shesha.Enterprise-2.5.9,Shesha.Enterprise,2.5.9,Shesha.Core-0.43.11,"Fix calendar, map and StartByName endpoint",,BoxStack-20,2025-10-17 9:24am
+Shesha.Enterprise-2.5.8,Shesha.Enterprise,2.5.8,Shesha.Core-0.43.11,Fixed migration issue,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.7,Shesha.Enterprise,2.5.7,Shesha.Core-0.43.11,"Fixed calendar. New Progress indicator component, updated workflow",,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.5,Shesha.Enterprise,2.5.5,Shesha.Core-0.43.10,"Updated calendar component, updated to the latest Shesha 0.43.10",,BoxStack-19,2025-10-17 9:24am
+Shesha.Enterprise-2.5.4,Shesha.Enterprise,2.5.4,Shesha.Core-0.43.7,Updated to the latest Shesha 0.43.7,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.3,Shesha.Enterprise,2.5.3,Shesha.Core-0.43.6,Added support for multi-instance serial steps. Fixed workflow engine handled outgoing flows immediately after the first subprocess instance finished for multi-instance subprocesses,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.2,Shesha.Enterprise,2.5.2,Shesha.Core-0.43.6,Implemented access to the scope process variables,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.1,Shesha.Enterprise,2.5.1,Shesha.Core-0.43.6,Fixed crash during reading of variables in multi-instance subprocesses,,,2025-10-17 9:24am
+Shesha.Enterprise-2.5.0,Shesha.Enterprise,2.5.0,Shesha.Core-0.43.6,Updated to the Shesha 0.43.6,,BoxStack-17,2025-10-17 9:24am
+Shesha.Enterprise-2.4.21,Shesha.Enterprise,2.4.21,Shesha.Core-0.41.13,Updated to the Shesha 0.41.13,,BoxStack-31,2025-11-26 4:51pm
+Shesha.Enterprise-2.4.20,Shesha.Enterprise,2.4.20,Shesha.Core-0.41.12,Updated to the latest Shesha 0.41.12. Fixed organisation tree,,BoxStack-30,2025-11-18 9:26am
+Shesha.Enterprise-2.4.19,Shesha.Enterprise,2.4.19,Shesha.Core-0.41.11,Recalculate workflow assignees,,BoxStack-25,2025-10-17 9:24am
+Shesha.Enterprise-2.4.18,Shesha.Enterprise,2.4.18,Shesha.Core-0.41.11,Updated IFacialRecognitionSettings,,,2025-10-17 9:24am
+Shesha.Enterprise-2.4.17,Shesha.Enterprise,2.4.17,Shesha.Core-0.41.11,Updated to the latest Shesha 0.41.11,,BoxStack-18,2025-10-17 9:24am
+Shesha.Enterprise-2.4.16,Shesha.Enterprise,2.4.16,Shesha.Core-0.41.10,Updated to the latest Shesha 0.41.10,,BoxStack-16,2025-10-17 9:24am
+Shesha.Enterprise-2.4.15,Shesha.Enterprise,2.4.15,Shesha.Core-0.41.9,Updated to the latest Shesha 0.41.9. Added NumberOfInvoices to PurchaseOrder and updated SMS notifications,,BoxStack-15,2025-10-17 9:24am
+Shesha.Enterprise-2.4.14,Shesha.Enterprise,2.4.14,Shesha.Core-0.41.8,Updated to the latest Shesha 0.41.8,,BoxStack-14,2025-10-17 9:24am
+Shesha.Enterprise-2.4.13,Shesha.Enterprise,2.4.13,Shesha.Core-0.41.7,Updated to the latest Shesha 0.41.7,,BoxStack-13,2025-10-17 9:24am
+Shesha.Enterprise-2.4.12,Shesha.Enterprise,2.4.12,,,,,2025-10-17 9:24am
+Shesha.Enterprise-2.4.11,Shesha.Enterprise,2.4.11,,,,BoxStack-12,2025-10-17 9:24am
+Shesha.Enterprise-2.4.10,Shesha.Enterprise,2.4.10,,,,,2025-10-17 9:24am
+Shesha.Enterprise-2.4.9,Shesha.Enterprise,2.4.9,Shesha.Core-0.41.6,Updated to the Shesha 0.41.6,,BoxStack-11,2025-10-17 9:24am
+Shesha.Enterprise-2.4.8,Shesha.Enterprise,2.4.8,Shesha.Core-0.41.5,Fixed draft items and changed the filter method to use the index on questionnaire component,,BoxStack-10,2025-10-17 9:24am
+Shesha.Enterprise-2.4.5,Shesha.Enterprise,2.4.5,Shesha.Core-0.41.4,Installed IDisposableAnalyzers,,BoxStack-9,2025-10-17 9:24am
+Shesha.Enterprise-2.4.4,Shesha.Enterprise,2.4.4,Shesha.Core-0.41.3,,,BoxStack-8,2025-10-17 9:24am
+Shesha.Enterprise-2.4.2,Shesha.Enterprise,2.4.2,Shesha.Core-0.41.2,Updated account invitation migrations to use the new module ensure exists function from core,,BoxStack-7,2025-10-17 9:24am
+Shesha.Enterprise-2.4.0,Shesha.Enterprise,2.4.0,Shesha.Core-0.41.1,"Updated account invitation notifications and migration forms.
+
+NB: Tree component is broken",,BoxStack-6,2025-10-17 9:24am
+Shesha.Enterprise-2.2.7,Shesha.Enterprise,2.2.7,Shesha.Core-0.40.0,Bug fixes,,,2025-10-17 9:24am
+Shesha.Enterprise-2.2.0,Shesha.Enterprise,2.2.0,Shesha.Core-0.40.0,"Updated to Shesha version 0.40.0
+Added support for Multi-instance-activities",,BoxStack-4,2025-10-17 9:24am
+Shesha.Enterprise-2.1.1,Shesha.Enterprise,2.1.1,Shesha.Core-0.39.3,Cherry picked the latest changes of organisation account,,BoxStack-3,2025-10-17 9:24am
+Shesha.Enterprise-2.0.9,Shesha.Enterprise,2.0.9,Shesha.Core-0.39.2,,,BoxStack-2,2025-10-17 9:24am
+Shesha.Enterprise-1.9.3,Shesha.Enterprise,1.9.3,Shesha.Core-0.39.1,Updated organisation account forms,,BoxStack-1,2025-10-17 9:24am
