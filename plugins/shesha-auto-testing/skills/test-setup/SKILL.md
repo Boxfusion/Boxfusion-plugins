@@ -1,6 +1,6 @@
 ---
 name: test-setup
-description: Self-reliant, fast bootstrap for the hybrid Markdown + Playwright testing workflow. One command — `/test-setup` — gets a fresh project to a state where `/CreateTest` works first try. Scaffolds every file the workflow needs (CLAUDE.md, package.json, playwright.config.ts, tsconfig.json, .gitignore, scripts/run-plan.js, scripts/build-dashboard.js, scripts/generate-allure-results.js, scripts/sync-to-hub.js, scripts/hub.config.example.json, test-plans/RULES.md, empty test-plans/ and test-reports/ folders) directly from templates bundled inside this skill — does NOT copy from any other project. Prompts the user once for project-specific values (project slug, app name, app URL, environment, admin credentials), substitutes them into the scaffolded files, then verifies prerequisites (Node ≥ 18, npm install, Playwright Chromium, Java for Allure) and offers to install what's missing. Does NOT configure the Test-Reports-Hub or CI — those are handled by `/submit-test-results` and `/Run-test-remote` respectively when first used. Trigger phrases include "set up testing", "set up the test environment", "install test prerequisites", "check test setup", "prepare to run tests", "bootstrap testing", "scaffold testing", "initialise testing", "test-setup".
+description: Self-reliant, fast bootstrap for the hybrid Markdown + Playwright testing workflow. One command — `/test-setup` — gets a fresh project to a state where `/CreateTest` works first try. Scaffolds every file the workflow needs (CLAUDE.md, package.json, playwright.config.ts, tsconfig.json, .gitignore, scripts/run-plan.js, scripts/build-dashboard.js, scripts/generate-allure-results.js, scripts/sync-to-hub.js, scripts/hub.config.example.json, test-plans/RULES.md, empty test-plans/ and test-reports/ folders) directly from templates bundled inside this skill — does NOT copy from any other project. Prompts the user once for project-specific values (project slug, app name, app URL, environment, admin credentials), substitutes them into the scaffolded files, then verifies prerequisites (Node ≥ 18, npm install, Playwright Chromium, Java for Allure) and offers to install what's missing. Registers the Playwright MCP server with Claude Code via `claude mcp add playwright -- npx -y @playwright/mcp@latest` so `/CreateTest` can record selectors live. Does NOT configure the Test-Reports-Hub or CI — those are handled by `/submit-test-results` and `/Run-test-remote` respectively when first used. Trigger phrases include "set up testing", "set up the test environment", "install test prerequisites", "check test setup", "prepare to run tests", "bootstrap testing", "scaffold testing", "initialise testing", "test-setup".
 ---
 
 # Test Setup
@@ -204,7 +204,7 @@ Pick the line that matches what actually happened. Do **not** claim "complete" i
 
 If Phase A scaffolded files and Phase B passed:
 
-> **Setup complete.** Scaffolded `<n>` file(s). Prerequisites verified (Node ✓, deps ✓, Chromium ✓, Java ✓, runner ✓).
+> **Setup complete.** Scaffolded `<n>` file(s). Prerequisites verified (Node ✓, deps ✓, Chromium ✓, Java ✓, Playwright MCP ✓, runner ✓).
 > Next: `/CreateTest` to author a test.
 
 If Phase A found nothing missing and Phase B passed:
@@ -222,6 +222,10 @@ If the user picked the `CHANGE-ME` password placeholder in A1:
 If the user picked Skip on the admin password:
 
 > ⚠️ The Admin password in `CLAUDE.md` is `<TODO: fill in>`. Replace it before running `/CreateTest`.
+
+If the user declined to register the Playwright MCP server in B5:
+
+> ⚠️ Playwright MCP server not registered. `/CreateTest` will fail until you run `claude mcp add playwright -- npx -y @playwright/mcp@latest`.
 
 **Do not** mention hub config or CI prereqs in the summary. Those are configured separately by `/submit-test-results` and `/Run-test-remote` when first invoked.
 
