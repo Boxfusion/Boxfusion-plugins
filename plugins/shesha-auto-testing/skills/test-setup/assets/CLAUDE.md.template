@@ -1,0 +1,122 @@
+# CLAUDE.md — Hybrid Markdown + Playwright Testing
+
+This project uses **markdown plans as the source of truth** and **Playwright `.spec.ts` files as a derived runtime artefact**. Plans live in [test-plans/](test-plans/); each plan has a paired `.spec.ts` beside it that Playwright executes for speed. When a script step fails or hits a `TODO` marker, Claude falls back to AI-driven MCP browser execution, repairs the failing step in the spec, and re-runs.
+
+> **The .md plan is canonical.** The .spec.ts is a generated, self-healing artefact. Edit the .md, not the spec — except for AI-repair patches, which Claude applies automatically.
+
+## The skill chain
+
+The flow is a linear, named chain — each step is one skill, the user invokes the next one manually:
+
+```
+/test-setup   →   /CreateTest   →   /RunTest   →   /submit-test-results
+                                         ↓
+                                  /Run-test-remote   (optional, parallel branch)
+```
+
+## How It Works
+0. **First time on a machine:** run `/test-setup` to install Node deps, Playwright browsers, verify Java/Allure, hub config, and (for CI) check `gh` CLI + GitHub secrets + Teams webhook. Idempotent — re-run any time `/RunTest` complains a prerequisite is missing.
+1. `/CreateTest` writes BOTH `test-plans/<folder>/<name>.md` AND a paired `<name>.spec.ts`.
+   **Selectors are recorded live**: the skill drives a real browser via MCP for each plan step, snapshots the accessibility tree, and emits the resolved locator directly into the spec. First runs pass without AI-repair under normal conditions. Steps that can't be resolved after 2 retries fall back to a `// TODO[selector]:` marker — AI-repair handles those on first `/RunTest`.
+2. `/RunTest` runs Playwright first: `node scripts/run-plan.js test-plans/<folder>/<name>.md`. When the plan name is ambiguous (multiple matches, or none specified), the skill **asks** which plan(s) to run — multi-select via `1,3,5`, `1-3`, or `all`.
+3. If the spec passes → write the markdown report from Playwright's JSON output.
+4. If a step fails (or hits a TODO) → AI fallback: open MCP browser, snapshot the page at the failing step, resolve the real selector, **patch only the failing line** in the .spec.ts, re-run the single failing test.
+5. If AI fallback succeeds → step marked `[PASS (repaired)]`; spec is now correct for next run.
+6. If AI fallback fails twice → auto-classify (stale-plan vs business-logic) and either fix the plan or log a bug under `test-reports/bugs/`.
+7. Regenerate the local [test-reports/index.html](test-reports/index.html) dashboard and the Allure report. **`/RunTest` stops here — it does NOT push to the hub.**
+8. When you're ready to publish, run `/submit-test-results` — that's the only thing that pushes the latest reports into the central [Test-Reports-Hub](https://github.com/Boxfusion/Test-ReportsHub).
+
+## Running on CI
+
+`/Run-test-remote` dispatches the test plan to GitHub Actions instead of running it locally. The skill detects whether the workflow file exists; if it's missing it scaffolds [.github/workflows/e2e-test.yml](.github/workflows/e2e-test.yml) and walks you through wiring up the three required secrets:
+
+- `ANTHROPIC_API_KEY` — for the cloud-side Claude Code action that drives the test
+- `APP_PASSWORD` — the admin password used by the test
+- `TEAMS_WEBHOOK_URL` — optional; if set, the workflow POSTs an Adaptive Card to your Teams channel on failure with plan name, branch, run URL, Allure URL, and the failing TC summary
+
+Nightly runs (the `schedule:` trigger) skip themselves if there were no commits in the last 24h. Manual dispatch always runs.
+
+## Mandatory Pre-Flight
+Before executing ANY test plan:
+1. Read this file (CLAUDE.md) completely
+2. Read [test-plans/RULES.md](test-plans/RULES.md) completely
+3. Read the specific test plan file (`.md`)
+4. Read the paired `.spec.ts` if it exists
+5. Only then begin execution
+
+## Running Tests
+Claude will:
+1. Call `node scripts/run-plan.js <plan>.md` and read its JSON stdout
+2. For each failing test: snapshot via MCP, resolve the real selector, Edit the failing line in `.spec.ts`, re-run that single test with `--grep`
+3. Write the markdown report at `test-reports/YYYY-MM-DD/<plan-name>.md` (the runner does this automatically on the final pass)
+4. Regenerate the central dashboard ([test-reports/index.html](test-reports/index.html)) with `node scripts/build-dashboard.js`
+5. Generate and open the Allure report
+
+## The Central Dashboard
+[test-reports/index.html](test-reports/index.html) is **auto-generated** by `scripts/build-dashboard.js`. Never hand-edit it. The generator scans every `.md` plan in [test-plans/](test-plans/) and every report under [test-reports/](test-reports/) and produces:
+- A GitHub-style activity heatmap (last 52 weeks; green for pass-only days, amber for partial, red for failed)
+- A Flows table — one row per plan with last result, total runs, a sparkline of recent runs, and badges (`NEW · never run`, `UPDATED · plan/spec edited after last run`, `no .spec.ts yet`)
+- A run timeline grouped by day, newest first
+
+The dashboard is regenerated as part of the post-run sequence below.
+
+## Post-Run: Dashboard + Allure (MANDATORY)
+After every test execution:
+```bash
+node scripts/build-dashboard.js
+rm -rf allure-results
+node scripts/generate-allure-results.js
+npx allure generate allure-results --clean --single-file -o allure-report
+```
+Or in one shot: `npm run report:all`.
+
+## Publishing to the central Test-Reports-Hub (separate skill)
+
+Hub sync is **not** part of `/RunTest` — it's its own skill so you can iterate locally without polluting the shared dashboard. When you're done running and ready to publish, invoke `/submit-test-results`. Under the hood it calls:
+
+```bash
+npm run report:hub
+```
+
+which copies `test-plans/` and `test-reports/` into `<hub>/projects/__PROJECT_NAME__/`, regenerates the cross-project dashboards, and commits + pushes the hub repo. The hub keeps separate dashboards per project plus a top-level landing page.
+
+First-time setup on each machine: copy `scripts/hub.config.example.json` to `scripts/hub.config.json` (gitignored) and set `hubPath` to your local clone of Test-Reports-Hub. `/test-setup` step "Hub config" does this interactively.
+
+## Test Artifacts
+
+Each run produces both **industry-standard** outputs (consumable by any CI/DevOps tool) and our **custom human-readable** layer (the markdown reports + dashboards). Anything new should land in one of the rows below — don't invent a new artifact location.
+
+| Artifact | Standard | Path in repo | Path in hub | Consumed by |
+|---|---|---|---|---|
+| **JUnit XML** | JUnit schema (`<testsuites><testsuite><testcase>`) | `test-results/junit.xml` | `projects/__PROJECT_NAME__/test-results/junit.xml` | Azure DevOps "Publish Test Results", GitHub Actions `dorny/test-reporter`, Jenkins, GitLab, any CI |
+| **Allure raw** | Allure JSON spec | `allure-results/*.json` | — (intermediate) | `npx allure generate` |
+| **Allure report** | Allure single-file HTML | `allure-report/index.html` | `projects/__PROJECT_NAME__/allure-report/index.html` | Humans — opens as in-page modal on the hub dashboard |
+| **Playwright JSON** | Playwright internal | `test-results/results.json` | — (internal) | `scripts/run-plan.js` |
+| **Playwright HTML** | Playwright HTML reporter | `playwright-report/index.html` | — (local debugging only) | Humans (failure forensics) |
+| **Run report** | Custom markdown | `test-reports/YYYY-MM-DD/<name>.md` | `projects/__PROJECT_NAME__/test-reports/YYYY-MM-DD/<name>.md` | Hub dashboard, humans |
+| **Bug log** | Custom markdown | `test-reports/bugs/<name>.md` | `projects/__PROJECT_NAME__/test-reports/bugs/<name>.md` | Hub dashboard, devs |
+| **Screenshots / traces / videos** | PNG, Playwright `.zip` trace, WebM | `test-results/artifacts/` | — (too large to sync) | Humans (failure forensics) |
+
+JUnit XML is the canonical machine-readable result format. To wire CI: point the platform's "publish test results" step at `test-results/junit.xml`.
+
+## Application Under Test
+| Key | Value |
+|-----|-------|
+| App | __APP_NAME__ |
+| URL | __APP_URL__ |
+| Environment | __ENV__ |
+
+## Credentials
+| Role | Username | Password |
+|------|----------|----------|
+| Admin | __ADMIN_USERNAME__ | __ADMIN_PASSWORD__ |
+
+## Core Constraints
+- **Plans are markdown.** `.md` files in [test-plans/](test-plans/) are the canonical specification. Reports are markdown in [test-reports/](test-reports/).
+- **Specs are derived.** `.spec.ts` files beside each plan are generated by `/CreateTest` and auto-patched by `/RunTest`'s AI-repair pass. Don't hand-edit them outside of AI-repair flow — regenerate from the .md instead.
+- **Playwright-first.** Always try the script before falling back to AI. Scripts are 5-10x faster and deterministic.
+- **AI repair patches only the failing step.** The unrelated lines stay untouched so diffs stay reviewable.
+- **Always snapshot before AI repair edits.** Resolve the real selector from a live snapshot, not from guesswork.
+- **Fail fast on blockers.** A failed `(BLOCKING)` assertion stops the test even after AI repair attempts.
+- **Report every assertion.** Every `ASSERT` produces a `[PASS]`, `[PASS (repaired)]`, or `[FAIL]` line.
+- **Always render the Allure report after a run.**
