@@ -1,0 +1,4 @@
+{
+  "_comment": "Copy this to hub.config.json (gitignored) and set the hubPath to your local clone of Test-Reports-Hub.",
+  "hubPath": "C:\\Users\\YourName\\path\\to\\Test-ReportsHub"
+}

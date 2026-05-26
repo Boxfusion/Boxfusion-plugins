@@ -1,0 +1,20 @@
+{
+  "name": "__PROJECT_NAME__",
+  "private": true,
+  "scripts": {
+    "test:plan": "node scripts/run-plan.js",
+    "test:spec": "playwright test",
+    "dashboard": "node scripts/build-dashboard.js",
+    "report:allure": "node scripts/generate-allure-results.js && allure generate allure-results --clean --single-file -o allure-report",
+    "report:all": "node scripts/build-dashboard.js && node scripts/generate-allure-results.js && allure generate allure-results --clean --single-file -o allure-report",
+    "report:hub": "node scripts/sync-to-hub.js",
+    "report:hub:dry": "node scripts/sync-to-hub.js --dry-run"
+  },
+  "dependencies": {
+    "allure-commandline": "^2.38.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "typescript": "^5.6.3"
+  }
+}
