@@ -1,0 +1,9 @@
+{
+    "name": "shesha-auto-testing",
+    "version": "1.6.5",
+    "description": "Automated end-to-end testing toolkit for Shesha framework applications. Provides skills for scaffolding Playwright test infrastructure, authoring test plans, running tests locally and on remote hubs, and syncing results to a central reports dashboard.",
+    "author": {
+        "name": "Shesha"
+    }
+}
+

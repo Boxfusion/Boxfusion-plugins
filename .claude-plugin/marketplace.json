@@ -1,18 +1,23 @@
 {
-    "name": "boxfusion-plugins",
-    "owner": {
-        "name": "Boxfusion"
+  "name": "boxfusion-plugins",
+  "owner": {
+    "name": "Boxfusion"
+  },
+  "plugins": [
+    {
+      "name": "shesha-enterprise",
+      "source": "./plugins/shesha-enterprise",
+      "description": "Enterprise-focused Shesha skills covering workflow authoring, workflow state analysis, document generation, and reference number configuration."
     },
-    "plugins": [
-        {
-            "name": "shesha-enterprise",
-            "source": "./plugins/shesha-enterprise",
-            "description": "Enterprise-focused Shesha skills covering workflow authoring, workflow state analysis, document generation, and reference number configuration."
-        },
-        {
-            "name": "shesha-utils",
-            "source": "./plugins/shesha-utils",
-            "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, permission hardening, backend debug linking, stack upgrades, ShaConfig documentation, and skill authoring."
-        }
-    ]
+    {
+      "name": "shesha-utils",
+      "source": "./plugins/shesha-utils",
+      "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, permission hardening, backend debug linking, stack upgrades, ShaConfig documentation, and skill authoring."
+    },
+    {
+      "name": "shesha-auto-testing",
+      "source": "./plugins/shesha-auto-testing",
+      "description": "Automated end-to-end testing toolkit for Shesha framework applications. Provides skills for scaffolding Playwright test infrastructure, authoring test plans, running tests locally and on remote hubs, and syncing results to a central reports dashboard."
+    }
+  ]
 }
