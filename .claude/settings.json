@@ -1,5 +1,3 @@
 {
-  "enabledPlugins": {
-    "shesha-utils@boxfusion-plugins": true
-  }
+  "enabledPlugins": {}
 }
