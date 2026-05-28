@@ -39,7 +39,16 @@ Never ask for App URL, credentials, environment, today's date, or file path — 
    ```
    If the section is missing, ask once for Organization and Project, then **offer to append this section to `CLAUDE.md`** so future runs don't re-ask. Do not proceed without both values.
 6. **Probe the Azure DevOps MCP.** Call `mcp__ado__core_list_projects`. If the tool is unreachable or not registered, follow `reference/devops-import.md` §1 to register it (`claude mcp add ado -- npx -y @azure-devops/mcp <org>`) and confirm `az login` has been run — then re-probe. Do not continue until the probe succeeds.
-7. **Probe the Playwright MCP.** Call `mcp__playwright__browser_navigate` with `url: "about:blank"`. If it errors, stop and tell the user to check `.mcp.json` / register the Playwright MCP (`/test-setup` does this), then re-run.
+7. **Probe the Playwright MCP (headless).** Call `mcp__playwright__browser_navigate` with `url: "about:blank"`. If it errors, stop and tell the user to check `.mcp.json` / register the Playwright MCP (`/test-setup` does this), then re-run.
+8. **Verify headless mode.** Run `claude mcp list 2>&1` and check the `playwright` line for the `--headless` flag. Recording must run in the background — no visible Chromium window. If the flag is absent, ask once:
+
+   > The Playwright MCP is registered without `--headless`, so recording will open a visible Chromium window. Re-register it now in headless mode? Runs:
+   > ```
+   > claude mcp remove playwright
+   > claude mcp add playwright -- npx -y @playwright/mcp@latest --headless
+   > ```
+
+   On yes, run both commands and re-probe before continuing. On no, continue but warn in the finishing reply that recording ran headed.
 
 ## Fetch from Azure DevOps
 
@@ -69,6 +78,8 @@ Each **suite → one `.md` plan file**; each **ADO test case → one `TC-NN` blo
 ## Generation — paired Playwright spec via MCP recording
 
 After each `.md` is written, record the paired `.spec.ts` with real selectors. **Use the exact same recording loop, selector-priority list, bounded fallback, and spec template as the `create-test` skill** — see `../create-test/SKILL.md` → sections *"Generation — paired Playwright spec via MCP recording"*, *"Selector priority"*, *"Bounded fallback"*, and *"Spec file structure"*. Do not reinvent it; that skill is the single source of truth for the recording mechanics.
+
+**Recording runs headless / in the background** (per pre-flight §8). No visible browser window opens during the walk-through; the selector resolution works entirely off the MCP accessibility snapshot.
 
 Two additions specific to DevOps-sourced specs:
 

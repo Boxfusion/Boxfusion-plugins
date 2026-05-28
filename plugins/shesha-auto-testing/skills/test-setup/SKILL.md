@@ -1,6 +1,6 @@
 ---
 name: test-setup
-description: Self-reliant, fast bootstrap for the hybrid Markdown + Playwright testing workflow. One command — `/test-setup` — gets a fresh project to a state where `/CreateTest` works first try. Scaffolds every file the workflow needs (CLAUDE.md, package.json, playwright.config.ts, tsconfig.json, .gitignore, scripts/run-plan.js, scripts/build-dashboard.js, scripts/generate-allure-results.js, scripts/sync-to-hub.js, scripts/hub.config.example.json, test-plans/RULES.md, empty test-plans/ and test-reports/ folders) directly from templates bundled inside this skill — does NOT copy from any other project. Prompts the user once for project-specific values (project slug, app name, app URL, environment, admin credentials), substitutes them into the scaffolded files, then verifies prerequisites (Node ≥ 18, npm install, Playwright Chromium, Java for Allure) and offers to install what's missing. Registers the Playwright MCP server with Claude Code via `claude mcp add playwright -- npx -y @playwright/mcp@latest` so `/CreateTest` can record selectors live. Does NOT configure the Test-Reports-Hub or CI — those are handled by `/submit-test-results` and `/Run-test-remote` respectively when first used. Trigger phrases include "set up testing", "set up the test environment", "install test prerequisites", "check test setup", "prepare to run tests", "bootstrap testing", "scaffold testing", "initialise testing", "test-setup".
+description: Self-reliant, fast bootstrap for the hybrid Markdown + Playwright testing workflow. One command — `/test-setup` — gets a fresh project to a state where `/CreateTest` works first try. Scaffolds every file the workflow needs (CLAUDE.md, package.json, playwright.config.ts, tsconfig.json, .gitignore, scripts/run-plan.js, scripts/build-dashboard.js, scripts/generate-allure-results.js, scripts/sync-to-hub.js, scripts/hub.config.example.json, test-plans/RULES.md, empty test-plans/ and test-reports/ folders) directly from templates bundled inside this skill — does NOT copy from any other project. Prompts the user once for project-specific values (project slug, app name, app URL, environment, admin credentials), substitutes them into the scaffolded files, then verifies prerequisites (Node ≥ 18, npm install, Playwright Chromium, Java for Allure) and offers to install what's missing. Registers the Playwright MCP server with Claude Code via `claude mcp add playwright -- npx -y @playwright/mcp@latest --headless` so `/CreateTest` can record selectors live without popping a visible browser window. Does NOT configure the Test-Reports-Hub or CI — those are handled by `/submit-test-results` and `/Run-test-remote` respectively when first used. Trigger phrases include "set up testing", "set up the test environment", "install test prerequisites", "check test setup", "prepare to run tests", "bootstrap testing", "scaffold testing", "initialise testing", "test-setup".
 ---
 
 # Test Setup
@@ -175,12 +175,12 @@ Look for a line beginning with `playwright`. If present, mark this step ✓ and 
 
 If absent, ask once:
 
-> Register the Playwright MCP server now? Runs `claude mcp add playwright -- npx -y @playwright/mcp@latest`. Required for `/CreateTest`.
+> Register the Playwright MCP server now? Runs `claude mcp add playwright -- npx -y @playwright/mcp@latest --headless`. Required for `/CreateTest`. The `--headless` flag keeps the recording browser hidden so it never steals focus while you work.
 
 On yes, run:
 
 ```bash
-claude mcp add playwright -- npx -y @playwright/mcp@latest
+claude mcp add playwright -- npx -y @playwright/mcp@latest --headless
 ```
 
 Then re-run `claude mcp list` to confirm `playwright` is now listed. If the add command failed, surface the stderr verbatim — common causes are `claude` CLI not on PATH or a stale lockfile in `~/.claude/`. Do not retry silently.
@@ -225,7 +225,7 @@ If the user picked Skip on the admin password:
 
 If the user declined to register the Playwright MCP server in B5:
 
-> ⚠️ Playwright MCP server not registered. `/CreateTest` will fail until you run `claude mcp add playwright -- npx -y @playwright/mcp@latest`.
+> ⚠️ Playwright MCP server not registered. `/CreateTest` will fail until you run `claude mcp add playwright -- npx -y @playwright/mcp@latest --headless`.
 
 **Do not** mention hub config or CI prereqs in the summary. Those are configured separately by `/submit-test-results` and `/Run-test-remote` when first invoked.
 

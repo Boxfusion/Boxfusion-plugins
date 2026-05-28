@@ -44,9 +44,19 @@ Never ask for App URL, credentials, environment, today's date, or file path.
 
    Do not invent placeholder credentials and continue.
 
-5. **Probe Playwright MCP.** Call `mcp__playwright__browser_navigate` with `url: "about:blank"`. If it errors, stop and tell the user:
+5. **Probe Playwright MCP (headless).** Call `mcp__playwright__browser_navigate` with `url: "about:blank"`. If it errors, stop and tell the user:
 
    > Playwright MCP server is not reachable. The recording loop needs it to capture selectors live. Check `.mcp.json` and ensure the Playwright MCP server is running, then re-run this skill.
+
+6. **Verify headless mode.** Run `claude mcp list 2>&1` and check the `playwright` line for the `--headless` flag. The recording loop must not pop a visible browser window — the whole point of this skill is silent, background recording. If the flag is absent, ask once:
+
+   > The Playwright MCP is registered without `--headless`, so recording will open a visible Chromium window. Re-register it now in headless mode? Runs:
+   > ```
+   > claude mcp remove playwright
+   > claude mcp add playwright -- npx -y @playwright/mcp@latest --headless
+   > ```
+
+   On yes, run both commands, then re-probe (`mcp__playwright__browser_navigate` with `url: "about:blank"`) before continuing. On no, continue but warn in the finishing reply that the recording ran headed.
 
 ## Generation — markdown plan
 
@@ -62,6 +72,8 @@ Expand the user's bullets into a `TC-NN` structure per `test-plans/RULES.md`:
 ## Generation — paired Playwright spec via MCP recording
 
 After the `.md` is written, drive the real app via Playwright MCP to capture every selector live, then emit the `.spec.ts`. This replaces the old "guess + TODO marker" scaffold.
+
+**Recording runs headless / in the background.** Pre-flight step 6 verifies the Playwright MCP is registered with `--headless` so no Chromium window pops up while the loop walks the app. Do not call `mcp__playwright__browser_resize` or any tool that depends on a visible viewport — every selector resolution must work off the accessibility snapshot, not screen coordinates. Status updates to the user are limited to short text lines ("Recording TC-02 step 3 / 7 …") — never imply "watch the browser" in any prompt.
 
 ### Recording loop — per TC, sequentially
 
