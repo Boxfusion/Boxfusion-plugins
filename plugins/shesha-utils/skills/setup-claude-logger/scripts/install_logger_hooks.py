@@ -28,9 +28,9 @@ import sys
 LEGACY_INGEST_URL = "/api/claude-logger/ingest"
 LOGGER_SCRIPT_MARKER = "cc_logger.py"
 
-ENABLED_PLUGIN = "shesha-developer@shesha-plugins"
-MARKETPLACE_NAME = "shesha-plugins"
-MARKETPLACE_VALUE = {"source": {"source": "github", "repo": "shesha-io/shesha-plugins"}}
+ENABLED_PLUGIN = "shesha-utils@boxfusion-plugins"
+MARKETPLACE_NAME = "boxfusion-plugins"
+MARKETPLACE_VALUE = {"source": {"source": "github", "repo": "Boxfusion/Boxfusion-plugins"}}
 
 
 def load_settings(path):

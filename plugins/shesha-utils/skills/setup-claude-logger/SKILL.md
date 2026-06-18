@@ -1,6 +1,6 @@
 ---
 name: setup-claude-logger
-description: Installs the Claude Logger configuration into Claude Code settings.json files — the CLAUDE_LOGGER_API_URL env var, the shesha-developer plugin, and the shesha-plugins marketplace. The UserPromptSubmit/PreToolUse/PostToolUse/SessionStart/Stop ingest hooks ship with the plugin (hooks/hooks.json) and reference the bundled cc_logger.py via ${CLAUDE_PLUGIN_ROOT} — no machine-specific absolute path. Each hook runs cc_logger.py, which enriches the event (turn cost, transcript details on Stop) and forwards it directly to the ingest backend — no local server required. Applies the configuration to both the global user settings and the current project settings as an additive merge — creating files where missing, updating these specific values in place where they already exist, and never removing or overwriting unrelated keys. Use when the user asks to set up, install, configure, add, enable, or update the Claude logger, logger hooks, telemetry hooks, or the ingest hooks for Claude Code.
+description: Installs the Claude Logger configuration into Claude Code settings.json files — the CLAUDE_LOGGER_API_URL env var, the shesha-utils plugin, and the boxfusion-plugins marketplace. The UserPromptSubmit/PreToolUse/PostToolUse/SessionStart/Stop ingest hooks ship with the plugin (hooks/hooks.json) and reference the bundled cc_logger.py via ${CLAUDE_PLUGIN_ROOT} — no machine-specific absolute path. Each hook runs cc_logger.py, which enriches the event (turn cost, transcript details on Stop) and forwards it directly to the ingest backend — no local server required. Applies the configuration to both the global user settings and the current project settings as an additive merge — creating files where missing, updating these specific values in place where they already exist, and never removing or overwriting unrelated keys. Use when the user asks to set up, install, configure, add, enable, or update the Claude logger, logger hooks, telemetry hooks, or the ingest hooks for Claude Code.
 ---
 
 # Setup Claude Logger
@@ -36,7 +36,9 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py"
 ambiguous in a user/project `settings.json`), so this is the canonical, machine-independent way
 to reference the bundled script — there is no absolute filesystem path anywhere. For the hooks
 to fire, the **`shesha-utils` plugin must be installed and enabled** (via the
-`boxfusion-plugins` marketplace); running this skill's installer is not what activates them.
+`boxfusion-plugins` marketplace, i.e. the `Boxfusion/Boxfusion-plugins` GitHub repo); running
+this skill's installer registers the marketplace and enables the plugin, but Claude Code only
+loads the hooks on the next restart.
 
 ## How it works
 
@@ -60,9 +62,9 @@ event is silently dropped and the hook never blocks or errors.
 ```json
 {
   "env": { "CLAUDE_LOGGER_API_URL": "<api-url>" },
-  "enabledPlugins": { "shesha-developer@shesha-plugins": true },
+  "enabledPlugins": { "shesha-utils@boxfusion-plugins": true },
   "extraKnownMarketplaces": {
-    "shesha-plugins": { "source": { "source": "github", "repo": "shesha-io/shesha-plugins" } }
+    "boxfusion-plugins": { "source": { "source": "github", "repo": "Boxfusion/Boxfusion-plugins" } }
   }
 }
 ```
