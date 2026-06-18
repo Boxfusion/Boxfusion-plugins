@@ -29,8 +29,13 @@ Code auto-discovers and merges in when the plugin is enabled. Each hook command 
 script through the plugin's install directory:
 
 ```
-python "${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py"
+python "${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py" || python3 "${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py"
 ```
+
+The `|| python3 …` fallback makes the hook cross-platform: Windows typically has `python`
+(and lacks `python3`, so trying it first avoids the Microsoft Store `python3` alias), while
+macOS/Linux usually expose only `python3`. Whichever interpreter exists runs the script; since
+`cc_logger.py` always exits 0, the fallback only fires when the first interpreter is missing.
 
 `${CLAUDE_PLUGIN_ROOT}` only resolves reliably inside a plugin's own `hooks/hooks.json` (it is
 ambiguous in a user/project `settings.json`), so this is the canonical, machine-independent way
@@ -85,7 +90,7 @@ Only `CLAUDE_LOGGER_API_URL` is required; the rest are optional.
 | `CLAUDE_LOGGER_API_TOKEN` | Optional bearer token. | none |
 | `CLAUDE_LOGGER_TIMEOUT` | Forward request timeout (seconds). | `5` |
 | `CLAUDE_LOGGER_ORGANISATION` | Organisation tag on every record. | none |
-| `CLAUDE_LOGGER_USER` | Fallback user when the payload carries none. | none |
+| `CLAUDE_LOGGER_USER` | Explicit user override. When unset, the record's `user` falls back to the OS user running Claude Code (`getpass.getuser()`). | OS user |
 | `CLAUDE_LOGGER_DEBUG_LOG` | Local file path; when set, each event's name and forward outcome (HTTP status / error) is appended for troubleshooting. | none |
 
 ## All five events are always forwarded
@@ -133,4 +138,6 @@ Notes:
   env var, the enabled plugin, and the marketplace entry (and that no `cc_logger.py` hooks
   remain in `settings.json`). The five hook events come from the plugin's `hooks/hooks.json`.
 - `settings.local.json` is never touched — only the requested `settings.json` files.
-- `python` must be on PATH for the hooks to run. The script uses only the standard library.
+- A Python 3 interpreter must be on PATH for the hooks to run — reachable as either `python`
+  or `python3` (the hook command tries both). The script uses only the standard library, so no
+  `pip install` is needed. It works on Windows, macOS, and Linux.

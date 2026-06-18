@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\" || python3 \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\" || python3 \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\" || python3 \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
           }
         ]
       }
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\" || python3 \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
           }
         ]
       }
@@ -48,7 +48,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\" || python3 \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
           }
         ]
       }
