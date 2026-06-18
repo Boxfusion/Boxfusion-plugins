@@ -30,6 +30,7 @@ Configuration (all via environment variables — installed into the Claude Code
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import sys
@@ -111,6 +112,16 @@ def _extract_user_prompt(message: dict[str, Any]) -> str | None:
                 text_parts.append(block.get("text") or "")
         return "".join(text_parts) or None
     return None
+
+
+def _os_username() -> str | None:
+    """Best-effort name of the OS user running Claude Code. getpass.getuser()
+    consults LOGNAME/USER/LNAME/USERNAME (so it works on POSIX and Windows).
+    Returns None if no username can be resolved."""
+    try:
+        return getpass.getuser() or None
+    except Exception:  # noqa: BLE001 - never let user resolution break logging
+        return None
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -198,8 +209,11 @@ def build_log_record(
         **payload,
     }
     record.setdefault("cwd", payload.get("cwd"))
+    # Precedence: a user supplied in the payload (rare) → the explicit
+    # CLAUDE_LOGGER_USER override → the OS user running Claude Code. So every
+    # record is tagged with whoever is prompting, even with no configuration.
     if not record.get("user"):
-        record["user"] = default_user
+        record["user"] = default_user or _os_username()
 
     if payload.get("hook_event_name") == "Stop":
         transcript_path = payload.get("transcript_path")
