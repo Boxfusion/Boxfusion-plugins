@@ -1,0 +1,57 @@
+{
+  "description": "Claude Logger ingest hooks. Each event pipes its payload into the bundled cc_logger.py, which enriches it and forwards it to the backend named by CLAUDE_LOGGER_API_URL. Paths are resolved from the plugin install directory via ${CLAUDE_PLUGIN_ROOT}, so no machine-specific absolute path is required.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
