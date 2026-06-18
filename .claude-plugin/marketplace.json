@@ -12,7 +12,7 @@
     {
       "name": "shesha-utils",
       "source": "./plugins/shesha-utils",
-      "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, permission hardening, backend debug linking, stack upgrades, ShaConfig documentation, and skill authoring."
+      "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, permission hardening, backend debug linking, stack upgrades, ShaConfig documentation, Claude logger setup, and skill authoring."
     },
     {
       "name": "shesha-auto-testing",

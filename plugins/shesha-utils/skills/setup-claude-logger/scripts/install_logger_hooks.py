@@ -1,46 +1,32 @@
 #!/usr/bin/env python3
-"""Idempotently install the Claude Logger env vars, hooks, plugin, and marketplace
-into one or more Claude Code settings.json files.
+"""Idempotently install the Claude Logger env vars, plugin, and marketplace into
+one or more Claude Code settings.json files.
 
 Usage:
     python install_logger_hooks.py --api-url <URL> SETTINGS_PATH [SETTINGS_PATH ...]
 
 Each SETTINGS_PATH is created (with parent dirs) if missing. Existing settings are
-preserved; only the logger-related keys are added or updated. Re-running is safe:
-existing logger hooks (both the new standalone form and the legacy curl-to-localhost
-form) are detected and replaced rather than duplicated.
+preserved; only the logger-related keys are added or updated.
 
-The installed hooks run the bundled ``cc_logger.py`` script directly: each hook pipes
-its event payload into the script, which enriches the event and forwards it straight
-to the ingest backend named by CLAUDE_LOGGER_API_URL. No local server is required.
+The ingest HOOKS themselves are NOT written here. They ship with the plugin in
+``<plugin-root>/hooks/hooks.json`` and reference the bundled ``cc_logger.py`` via
+``${CLAUDE_PLUGIN_ROOT}`` — so the hook command resolves from the plugin install
+directory rather than a machine-specific absolute path. This installer only:
+  * sets the logger env vars (CLAUDE_LOGGER_API_URL etc.),
+  * enables the plugin and registers its marketplace, and
+  * removes any logger hooks left in settings.json by older versions (the
+    absolute-path standalone form and the legacy curl-to-localhost form) so the
+    plugin-provided hooks are not duplicated.
 """
 import argparse
 import json
 import os
 import sys
 
-# Absolute path to the standalone logger script that sits next to this installer.
-LOGGER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cc_logger.py")
-
-# Markers used to recognise (and replace) previously-installed logger hooks.
+# Markers used to recognise (and remove) logger hooks left in settings.json by
+# older versions of this installer.
 LEGACY_INGEST_URL = "/api/claude-logger/ingest"
 LOGGER_SCRIPT_MARKER = "cc_logger.py"
-
-
-def hook_command():
-    """The command each logger hook runs. The event payload arrives on stdin
-    (Claude Code pipes it in); the script reads it and forwards directly."""
-    return f'python "{LOGGER_SCRIPT}"'
-
-
-# Hook events and whether they carry a "*" matcher.
-HOOK_EVENTS = {
-    "UserPromptSubmit": False,
-    "PreToolUse": True,
-    "PostToolUse": True,
-    "SessionStart": False,
-    "Stop": False,
-}
 
 ENABLED_PLUGIN = "shesha-developer@shesha-plugins"
 MARKETPLACE_NAME = "shesha-plugins"
@@ -80,21 +66,23 @@ def force_dict(settings, key):
     return value
 
 
-def install_hooks(settings):
-    command = hook_command()
-    hooks = force_dict(settings, "hooks")
-    for event, has_matcher in HOOK_EVENTS.items():
+def remove_settings_logger_hooks(settings):
+    """Strip any logger hooks previously written into settings.json (the
+    absolute-path standalone form and the legacy curl-to-localhost form). The
+    canonical hooks now ship with the plugin's hooks/hooks.json, so leaving these
+    behind would double-log. Empty hook events/containers are pruned."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return
+    for event in list(hooks.keys()):
         groups = hooks.get(event)
         if not isinstance(groups, list):
-            groups = []
-            hooks[event] = groups
-        # Drop any pre-existing logger groups (new or legacy) so we re-add the
-        # canonical one (update-in-place, no duplicates on re-run).
+            continue
         groups[:] = [g for g in groups if not is_logger_hook(g)]
-        entry = {"hooks": [{"type": "command", "command": command}]}
-        if has_matcher:
-            entry = {"matcher": "*", **entry}
-        groups.append(entry)
+        if not groups:
+            del hooks[event]
+    if not hooks:
+        del settings["hooks"]
 
 
 def install_env(settings, args):
@@ -119,7 +107,7 @@ def install(settings, args):
     # Each step only adds or updates its own keys; all other keys in `settings`
     # are left untouched.
     install_env(settings, args)
-    install_hooks(settings)
+    remove_settings_logger_hooks(settings)
     force_dict(settings, "enabledPlugins")[ENABLED_PLUGIN] = True
     force_dict(settings, "extraKnownMarketplaces")[MARKETPLACE_NAME] = MARKETPLACE_VALUE
     return settings
@@ -150,9 +138,6 @@ def main():
     )
     parser.add_argument("paths", nargs="+", help="settings.json paths to update.")
     args = parser.parse_args()
-
-    if not os.path.exists(LOGGER_SCRIPT):
-        print(f"WARNING: logger script not found at {LOGGER_SCRIPT}; hooks will fail until it exists.", file=sys.stderr)
 
     for path in args.paths:
         parent = os.path.dirname(os.path.abspath(path))
