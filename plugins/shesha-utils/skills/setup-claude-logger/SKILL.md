@@ -35,7 +35,7 @@ python "${CLAUDE_PLUGIN_ROOT}/skills/setup-claude-logger/scripts/cc_logger.py"
 `${CLAUDE_PLUGIN_ROOT}` only resolves reliably inside a plugin's own `hooks/hooks.json` (it is
 ambiguous in a user/project `settings.json`), so this is the canonical, machine-independent way
 to reference the bundled script — there is no absolute filesystem path anywhere. For the hooks
-to fire, the **`shesha-enterprise` plugin must be installed and enabled** (via the
+to fire, the **`shesha-utils` plugin must be installed and enabled** (via the
 `boxfusion-plugins` marketplace); running this skill's installer is not what activates them.
 
 ## How it works
