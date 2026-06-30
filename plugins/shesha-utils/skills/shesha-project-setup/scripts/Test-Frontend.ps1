@@ -19,6 +19,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# --- Helper: Invoke-Native ---
+# Runs a native command capturing stdout+stderr WITHOUT letting stderr lines become
+# terminating NativeCommandErrors under $ErrorActionPreference='Stop' (Windows PS 5.1).
+# npm writes "npm warn deprecated ..." to stderr; only the exit code should decide success.
+function Invoke-Native {
+    param([scriptblock]$Command)
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & $Command 2>&1
+        $script:LastNativeExitCode = $LASTEXITCODE
+        return $out
+    }
+    finally {
+        $ErrorActionPreference = $prevEAP
+    }
+}
+
 # --- Helper: Wait-ForPort ---
 function Wait-ForPort {
     param(
@@ -55,9 +73,11 @@ function Stop-DevServer {
         ForEach-Object {
             if ($_ -match '\s(\d+)$') { [int]$Matches[1] }
         } | Sort-Object -Unique
-    foreach ($pid in $portListeners) {
-        if ($pid -gt 0) {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+    # NOTE: do NOT name the loop variable $pid — it is a read-only automatic variable
+    # and assigning to it throws, aborting the script before the JSON verdict prints.
+    foreach ($procId in $portListeners) {
+        if ($procId -gt 0) {
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -84,8 +104,8 @@ try {
     Write-Host "Running npm install in $AdminPortalPath..."
     Push-Location $AdminPortalPath
     try {
-        $installOutput = & npm install 2>&1
-        $installExitCode = $LASTEXITCODE
+        $installOutput = Invoke-Native { npm install }
+        $installExitCode = $script:LastNativeExitCode
         if ($installExitCode -ne 0) {
             $result.install = 'FAIL'
             $lines = ($installOutput | ForEach-Object { $_.ToString() })
@@ -108,8 +128,29 @@ try {
     Write-Host "Running npm run build in $AdminPortalPath..."
     Push-Location $AdminPortalPath
     try {
-        $buildOutput = & npm run build 2>&1
-        $buildExitCode = $LASTEXITCODE
+        $buildOutput = Invoke-Native { npm run build }
+        $buildExitCode = $script:LastNativeExitCode
+
+        # Next.js SWC recovery: a corrupt optional native binary fails with
+        # "next-swc....node is not a valid Win32 application". A clean `npm ci`
+        # re-fetches the binary. Avoid ad-hoc `npm install <pkg> --no-save` surgery,
+        # which can desync the dependency tree.
+        $buildText = (($buildOutput | ForEach-Object { $_.ToString() }) -join "`n")
+        if ($buildExitCode -ne 0 -and $buildText -match '(?i)next-swc.*is not a valid Win32 application') {
+            Write-Host 'Detected corrupt next-swc native binary; running npm ci to recover...'
+            $ciOutput = Invoke-Native { npm ci }
+            if ($script:LastNativeExitCode -eq 0) {
+                $buildOutput = Invoke-Native { npm run build }
+                $buildExitCode = $script:LastNativeExitCode
+                if ($buildExitCode -eq 0) {
+                    $result.errors += 'next-swc native binary was corrupt; recovered automatically with npm ci.'
+                }
+            }
+            else {
+                $result.errors += 'npm ci (SWC recovery) failed.'
+            }
+        }
+
         if ($buildExitCode -ne 0) {
             $result.build = 'FAIL'
             $lines = ($buildOutput | ForEach-Object { $_.ToString() })

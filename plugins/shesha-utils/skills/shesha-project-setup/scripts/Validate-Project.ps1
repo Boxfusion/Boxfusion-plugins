@@ -29,10 +29,28 @@ $result = @{
     webHostProject         = ''
     adminPortalPath        = ''
     directoryBuildPropsPath = ''
+    dotnetSdks             = @()
+    nugetConfigFound       = $false
+    nugetConfigPath        = ''
+    warnings               = @()
     errors                 = @()
 }
 
 try {
+    # --- Prerequisite: a .NET SDK must be present ---
+    # An in-progress Visual Studio / .NET update can remove the SDK out from under a build,
+    # so a "No SDKs were found" failure later is environmental, not a project defect.
+    $sdkList = @()
+    try {
+        $sdkOutput = & dotnet --list-sdks 2>$null
+        $sdkList = @($sdkOutput | Where-Object { $_ -and $_.Trim() -ne '' } | ForEach-Object { $_.ToString().Trim() })
+    }
+    catch {}
+    $result.dotnetSdks = $sdkList
+    if ($sdkList.Count -eq 0) {
+        $result.errors += 'No .NET SDK found (dotnet --list-sdks returned nothing). Install one, e.g. `winget install Microsoft.DotNet.SDK.8`. NOTE: an in-progress VS/.NET update can temporarily remove the SDK.'
+    }
+
     # Find .sln file
     $slnFiles = Get-ChildItem -Path $ProjectRoot -Filter '*.sln' -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch '\\(bin|obj|node_modules)\\' }
@@ -127,6 +145,41 @@ try {
         $result.directoryBuildPropsPath = $dbpPath
     }
 
+    # NuGet.Config discoverability check.
+    # NuGet walks UP from the project/solution directory. A NuGet.Config that only lives in
+    # backend/.nuget/ is NOT on that discovery path (it is not an ancestor of the projects),
+    # so its feeds are silently ignored by `dotnet restore`. Confirm a NuGet.Config sits next
+    # to the .sln or on an ancestor directory.
+    if ($result.slnPath) {
+        $dir = Split-Path $result.slnPath -Parent
+        $found = $false
+        while ($dir -and -not $found) {
+            $candidate = Get-ChildItem -Path $dir -Filter 'NuGet.Config' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($candidate) {
+                $result.nugetConfigFound = $true
+                $result.nugetConfigPath = $candidate.FullName
+                $found = $true
+                break
+            }
+            $parent = Split-Path $dir -Parent
+            if ($parent -eq $dir) { break }
+            $dir = $parent
+        }
+        if (-not $found) {
+            $result.warnings += 'No NuGet.Config found on the restore discovery path (next to the .sln or an ancestor). Feeds defined only in backend/.nuget/NuGet.Config are NOT auto-discovered. The skill should offer to create a NuGet.Config beside the .sln with the Boxfusion feeds.'
+        }
+    }
+
+    # Flag stray backup/copy .csproj files in the Web.Host project — they can be picked up
+    # by mistake during build/run. Suggest deleting them.
+    if ($result.webHostProject -and (Test-Path $result.webHostProject)) {
+        $strayProjects = Get-ChildItem -Path $result.webHostProject -Filter '*.csproj' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '(?i)\b(backup|copy)\b' }
+        foreach ($stray in $strayProjects) {
+            $result.warnings += "Stray project file '$($stray.Name)' in Web.Host; consider deleting it so it is not built/run by mistake."
+        }
+    }
+
     # Read appsettings.json
     if ($result.webHostProject) {
         $appSettingsPath = Join-Path $result.webHostProject 'appsettings.json'
@@ -167,7 +220,7 @@ try {
 
     # Determine validity
     $criticalErrors = $result.errors | Where-Object {
-        $_ -match 'No .sln' -or $_ -match 'backend/src/' -or $_ -match 'Web.Host project'
+        $_ -match 'No .sln' -or $_ -match 'backend/src/' -or $_ -match 'Web.Host project' -or $_ -match 'No .NET SDK'
     }
     $result.valid = ($criticalErrors.Count -eq 0 -and $result.fullNamespace -ne '')
 
