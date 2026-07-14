@@ -49,7 +49,8 @@ single source of truth — correct the format there if a serializer detail chang
       "referenceListName": "OrderStatus", "referenceListNamespace": "MyModule" }
   ],
   "pivot":     { "rows": ["Region"], "columns": ["Year"], "data": [{ "field": "Total", "summary": "Sum", "format": "{0:n2}" }] },
-  "dashboard": { "argument": "Region", "series": [{ "field": "Total", "summary": "COUNT()" }], "kpis": [{ "field": "Total", "caption": "Total", "summary": "Sum", "format": "{0:n2}" }] }
+  "dashboard": { "argument": "Region", "series": [{ "field": "Total", "summary": "COUNT()" }], "kpis": [{ "field": "Total", "caption": "Total", "summary": "Sum", "format": "{0:n2}" }] },
+  "charts":    [{ "title": "By Status", "dataMember": "StatusCounts", "chartType": "pie", "argument": "Status", "series": [{ "caption": "Orders", "valueField": "Cnt" }] }]  // type:"Report" only — see "Charts on a tabular report" below
 }
 ```
 
@@ -208,6 +209,46 @@ cell binds via an expression to the **view-qualified** column, matching real rep
   </ExpressionBindings>
 </Item1>
 ```
+
+### Charts on a tabular report
+
+A `Report`-type spec may also carry `charts[]` — the same shape as `dashboard.charts[]` (see
+[Pivot / Dashboard](#pivot--dashboard) below for the series shapes). Unlike Dashboard, tabular
+reports keep their detail table; each chart is rendered into the **ReportHeader** band, stacked
+below the title/accent line and above the page-header/detail table, so it prints once above the
+listing rather than replacing it:
+
+```jsonc
+{
+  "type": "Report",
+  "dataSourceName": "CaseOverviewData",
+  "queries": [
+    { "name": "CaseOverviewQuery", "sql": "SELECT ... FROM SM_Cases ...", "columns": [ ... ] },
+    { "name": "ChannelQuery", "sql": "SELECT Channel, COUNT(*) AS CaseCount FROM ... GROUP BY Channel", "columns": [ ... ] }
+  ],
+  "columns": [ /* table columns, bound to the primary (first) query */ ],
+  "charts": [
+    { "title": "Cases Logged by Channel", "dataMember": "ChannelQuery", "chartType": "pie",
+      "argument": "Channel", "series": [ { "caption": "Cases", "valueField": "CaseCount" } ] }
+  ]
+}
+```
+
+A chart's `dataMember` names the query it binds to (defaults to the primary query if omitted); use
+a second entry in `queries[]` when the chart aggregates data the table doesn't (e.g. counts grouped
+by a column the table doesn't show). Every query in `queries[]` receives all of `spec.parameters`,
+so report filters apply to the chart the same way they apply to the table. The ReportHeader band's
+height grows automatically to fit the stacked chart(s).
+
+**Updating an existing tabular report to add a chart**: rebuild its full spec (table columns +
+queries + the new `charts[]`) and redeploy with the report's `id` — `ReportingReport/Update` merges
+the new `reportDefinitionXml` over the existing DTO, so parameters/filter form are untouched (see
+[api-access.md](api-access.md#updating-an-existing-report-in-place)). This requires reconstructing
+the spec (from the requirement + `discover-metadata.js`) since only the rendered XML, not the
+original spec, is stored server-side. If a report's XML was hand-edited outside this skill (e.g. in
+the DevExpress designer) and must be preserved byte-for-byte apart from the addition, injecting the
+chart XML directly into the fetched `reportDefinitionXml` is the fallback — but that path is
+one-off and not what `build-report-xml.js` does.
 
 ## Pivot / Dashboard
 

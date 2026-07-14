@@ -185,8 +185,11 @@ function resolveTheme(spec) {
 // Content width = page width minus the 50+50 margins.
 function contentWidth(spec) { return (spec.pageWidth || (spec.landscape ? 1100 : 850)) - 100; }
 
-// Shared, styled ReportHeader controls: optional logo, title, description, generated-on, accent line.
-function headerControls(theme, spec, pageW) {
+// Shared, styled ReportHeader controls: optional logo, title, description, generated-on, accent
+// line. `extraItems` (optional) is a list of (idx) => xmlString builders — e.g. charts appended
+// below the accent line by tabularBands — numbered continuing the same Item-tag sequence, since
+// DevExpress's serializer requires each <Controls> container's ItemN tags to be 1..N sequential.
+function headerControls(theme, spec, pageW, extraItems) {
   const items = [];
   let n = 0; const next = () => ++n;
   if (theme.logoBase64) {
@@ -198,6 +201,7 @@ function headerControls(theme, spec, pageW) {
   }
   items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPageInfo" Name="genDate" PageInfo="DateTime" TextFormatString="Generated: {0:dd MMM yyyy HH:mm}" TextAlignment="MiddleRight" SizeF="240,16" LocationFloat="${pageW - 240},58" Font="${theme.font}, 8pt" ForeColor="${theme.text}" />`);
   items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLine" Name="accentLine" LineWidth="2" SizeF="${pageW},4" LocationFloat="0,78" ForeColor="${theme.accent}" />`);
+  (extraItems || []).forEach((build) => items.push(build(next())));
   return items.join('\n');
 }
 
@@ -236,13 +240,39 @@ function tabularBands(spec) {
       `                </Item${i + 1}>`;
   }).join('\n');
 
-  const header = headerControls(theme, spec, totalW);
+  // Optional charts (spec.charts[]) rendered below the accent line, inside ReportHeader — a
+  // tabular report can carry summary charts alongside its detail table. Each chart binds to its
+  // own dataMember (defaulting to the primary query) via the same chartControl() dashboardBands
+  // uses, so charts drawing from a second query (spec.queries[]) work the same way here.
+  const charts = spec.charts || [];
+  const primaryQuery = queriesOf(spec)[0].name;
+  const chartBuilders = [];
+  let chartsEndY = 90;
+  if (charts.length) {
+    let y = 96;
+    charts.forEach((ch, ci) => {
+      const chartSpec = { ...ch, dataMember: ch.dataMember || primaryQuery };
+      if (chartSpec.title) {
+        const titleY = y;
+        chartBuilders.push((idx) => `        <Item${idx} Ref="${nextRef()}" ControlType="XRLabel" Name="chartTitle${ci}" Text="${xmlEscape(chartSpec.title)}" SizeF="${totalW},22" LocationFloat="0,${titleY}" Font="${theme.font}, 12pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
+        y += 26;
+      }
+      const h = chartSpec.height || 260;
+      const chartY = y;
+      chartBuilders.push((idx) => chartControl(theme, chartSpec, idx, 0, chartY, totalW, h));
+      y += h + 16;
+    });
+    chartsEndY = y;
+  }
+
+  const header = headerControls(theme, spec, totalW, chartBuilders);
+  const headerHeight = charts.length ? chartsEndY : 90;
   const phTableRef = nextRef(), phRowRef = nextRef();
   const dTableRef = nextRef(), dRowRef = nextRef();
 
   return `  <Bands>
     <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="${headerHeight}">
       <Controls>
 ${header}
       </Controls>
