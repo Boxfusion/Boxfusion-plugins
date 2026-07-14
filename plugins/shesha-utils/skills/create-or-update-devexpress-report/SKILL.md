@@ -130,8 +130,14 @@ node <skill-dir>/scripts/deploy-report.js <baseUrl> <username> '<password>' <dep
 ```
 
 **Updating an existing report** (later changes — new charts, tweaked SQL, extra filters): rebuild
-the artifacts and re-run with the report's `id` (as `report.id` in `deploy.json` or `--report-id
-<guid>`). The script then **updates in place** — it never deletes/recreates the report:
+the artifacts and re-run in one of two ways —
+- **by id**: pass `report.id` in `deploy.json` or `--report-id <guid>`; or
+- **by name** (no id needed): pass `--upsert` and it looks the report up by `report.displayName`,
+  updating it if exactly one exists, creating it if none, and erroring if the name is ambiguous
+  (then pass the id). Name lookup goes through the generic entity query, so it works even when the
+  report service's own `GetAll` is broken.
+
+The script then **updates in place** — it never deletes/recreates the report:
 - report → `ReportingReport/Update` (merges your changes over the existing DTO, same id);
 - form → `FormConfiguration/UpdateMarkup` on the existing form (or creates it if missing), kept Live;
 - parameters → reconciled by `internalName` (existing updated, new created; obsolete ones are kept

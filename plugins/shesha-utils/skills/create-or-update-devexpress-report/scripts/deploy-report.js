@@ -10,12 +10,17 @@
  * Options:
  *   --report-id <guid>        Update the existing report with this id (instead of creating one).
  *                             (Equivalent to setting report.id in deploy.json.)
+ *   --upsert                  No id? Look the report up by report.displayName and UPDATE it if
+ *                             exactly one exists (else CREATE; errors if the name is ambiguous).
  *   --prune-params            When updating, delete parameters that exist on the report but are no
  *                             longer in the spec. Default: keep them (only add/update).
  *   --dry-run                 Print the planned requests without sending them.
  *   --module-route <segment>  Report service route segment (default: DevExpressReporting).
+ *   --report-entity-type <t>  Entity type used for the --upsert name lookup
+ *                             (default: boxfusion.devexpressreporting.Domain.ReportingReport).
  *
- * Mode is chosen automatically: if report.id (or --report-id) is given → UPDATE; else → CREATE.
+ * Mode: report.id/--report-id → UPDATE by id; --upsert → find by name then update-or-create;
+ * otherwise → CREATE.
  *
  * deploy.json shape (see reference/api-access.md):
  * {
@@ -51,17 +56,21 @@ const positional = [];
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--dry-run') flags.dryRun = true;
   else if (argv[i] === '--prune-params') flags.prune = true;
+  else if (argv[i] === '--upsert') flags.upsert = true;
   else if (argv[i] === '--module-route') flags.moduleRoute = argv[++i];
   else if (argv[i] === '--report-id') flags.reportId = argv[++i];
+  else if (argv[i] === '--report-entity-type') flags.reportEntityType = argv[++i];
   else positional.push(argv[i]);
 }
 const [baseUrlRaw, username, password, deployPath] = positional;
 if (!baseUrlRaw || !username || !password || !deployPath) {
-  console.error('Usage: node deploy-report.js <baseUrl> <username> <password> <deploy.json> [--report-id <guid>] [--prune-params] [--dry-run] [--module-route <seg>]');
+  console.error('Usage: node deploy-report.js <baseUrl> <username> <password> <deploy.json> [--report-id <guid>] [--upsert] [--prune-params] [--dry-run] [--module-route <seg>]');
   process.exit(1);
 }
 const baseUrl = baseUrlRaw.replace(/\/+$/, '');
 const moduleRoute = flags.moduleRoute || 'DevExpressReporting';
+// Generic entity type used to look a report up by name (bypasses the report AppService's list mapper).
+const REPORT_ENTITY_TYPE = flags.reportEntityType || 'boxfusion.devexpressreporting.Domain.ReportingReport';
 
 // ── http helper ────────────────────────────────────────────────────────────
 
@@ -115,8 +124,8 @@ const reportSpec = spec.report || {};
 reportSpec.reportDefinitionXml = readMaybeFile(reportSpec.reportDefinitionXml, reportSpec.reportDefinitionXmlFile);
 if (!reportSpec.reportDefinitionXml) fail('report.reportDefinitionXml (or reportDefinitionXmlFile) is required');
 
-const reportId = flags.reportId || reportSpec.id || null;   // present ⇒ update mode
-const updating = !!reportId;
+let reportId = flags.reportId || reportSpec.id || null;   // present ⇒ update by id
+let updating = !!reportId;                                // may also be set by --upsert name lookup
 
 let formMarkupString = null;
 if (spec.form) {
@@ -143,6 +152,17 @@ async function resolveModuleId(token, moduleName) {
   const found = items.find((m) => (m.name || '').toLowerCase() === moduleName.toLowerCase());
   if (!found) fail(`Module "${moduleName}" not found on target site`);
   return found.id;
+}
+
+// Find report(s) by displayName via the generic entity query (the report AppService's own GetAll can
+// be broken by a DTO mapping bug, so we go through Entities/GetAll which doesn't hit that mapper).
+async function resolveReportIdByName(token, displayName) {
+  if (!displayName) fail('--upsert needs report.displayName in the spec');
+  const filter = encodeURIComponent(JSON.stringify({ '==': [{ var: 'displayName' }, displayName] }));
+  const res = await request('GET',
+    `${baseUrl}/api/services/app/Entities/GetAll?entityType=${encodeURIComponent(REPORT_ENTITY_TYPE)}&maxResultCount=50&properties=id displayName&filter=${filter}`, { token });
+  if (!ok(res)) fail('Report name lookup (Entities/GetAll) failed — pass --report-id instead', res);
+  return (res.body?.result?.items || []).map((i) => ({ id: i.id, displayName: i.displayName }));
 }
 
 // ── form: create+publish, or update markup in place ──────────────────────────
@@ -303,8 +323,17 @@ async function reconcileParameters(token, reportId) {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // --upsert needs a name lookup (a read), so authenticate even for a dry run in that case.
+  const token = (!flags.dryRun || flags.upsert) ? await authenticate() : 'dry-run-token';
+
+  if (!reportId && flags.upsert) {
+    const matches = await resolveReportIdByName(token, reportSpec.displayName);
+    if (matches.length === 1) { reportId = matches[0].id; updating = true; console.log(`↻ Matched existing report "${reportSpec.displayName}" → ${reportId}`); }
+    else if (matches.length === 0) { console.log(`＋ No report named "${reportSpec.displayName}" found — will create a new one`); }
+    else fail(`${matches.length} reports are named "${reportSpec.displayName}" — ambiguous. Pass the exact id with --report-id:\n` + matches.map((m) => `    ${m.id}`).join('\n'));
+  }
+
   console.log(`Target: ${baseUrl}  (module route: ${moduleRoute})  mode: ${updating ? 'UPDATE ' + reportId : 'CREATE'}${flags.dryRun ? '  [DRY RUN]' : ''}`);
-  const token = flags.dryRun ? 'dry-run-token' : await authenticate();
   const formProcessed = !!spec.form;
   const parameterFormPath = await deployForm(token);
   const id = updating

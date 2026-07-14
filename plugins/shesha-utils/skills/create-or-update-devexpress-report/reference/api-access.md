@@ -119,9 +119,19 @@ shape, retry with a bare `"type": <n>`.
 
 ## Updating an existing report (in place)
 
-To apply later changes, **update** the existing records — never delete + recreate. Trigger by
-passing the report `id` (`report.id` in `deploy.json` or `--report-id`). Order: form → report →
-parameters.
+To apply later changes, **update** the existing records — never delete + recreate. Trigger either
+by passing the report `id` (`report.id` / `--report-id`), or by name with `--upsert`. Order: form →
+report → parameters.
+
+**Find the report by name** (for `--upsert`) — use the generic entity query, not the report
+service's `GetAll` (which may 500 on a DTO-mapping bug):
+```
+GET {baseUrl}/api/services/app/Entities/GetAll
+    ?entityType=boxfusion.devexpressreporting.Domain.ReportingReport
+    &properties=id displayName
+    &filter={"==":[{"var":"displayName"},"<display name>"]}
+```
+One match → update that id; none → create; several → ask for the exact id.
 
 **Form** — reuse the existing one if present:
 ```
