@@ -1,13 +1,14 @@
 ---
-name: create-devexpress-report
-description: Auto-creates DevExpress reports in a Shesha application from natural-language requirements — instead of hand-configuring them in the front-end report designer. Generates the DevExpress XtraReport definition XML (SQL data source + bands/tables), the report parameters, and a Shesha filter form, then deploys them live to a target site via its API. Calls the generate-sql-query skill for the report SQL and builds the filter form itself. Use when the user asks to "create a report", "auto-generate a report", "build a DevExpress report", "add a report", "scaffold a reporting report", or configure a report without using the designer UI, for the pd-devexpressreporting / DevExpressReporting module.
+name: create-or-update-devexpress-report
+description: Creates or updates DevExpress reports in a Shesha application from natural-language requirements — instead of hand-configuring them in the front-end report designer. Generates the DevExpress XtraReport definition XML (SQL data source + bands/tables/charts), the report parameters, and a Shesha filter form, then deploys them live to a target site via its API; re-running against an existing report id updates it in place (never deletes/recreates). Calls the generate-sql-query skill for the report SQL and builds the filter form itself. Use when the user asks to "create a report", "update a report", "auto-generate a report", "build a DevExpress report", "add a chart/filter to a report", "change an existing report", "add a report", "scaffold a reporting report", or configure a report without using the designer UI, for the pd-devexpressreporting / DevExpressReporting module.
 ---
 
-# Create DevExpress Report
+# Create or Update DevExpress Report
 
-Automate creation of a DevExpress report in a Shesha app that uses the **DevExpressReporting**
-module (`boxfusion.devexpressreporting`), so the user does **not** have to configure it manually
-in the front-end report designer.
+Automate creating **and updating** DevExpress reports in a Shesha app that uses the
+**DevExpressReporting** module (`boxfusion.devexpressreporting`), so the user does **not** have to
+configure them manually in the front-end report designer. Re-running against an existing report
+updates it in place — see Step 5.
 
 A report is a `ReportingReport` row whose core is `ReportDefinitionXml` — a DevExpress
 **XtraReport layout XML (serializer v23.1.5)** that embeds a `SqlDataSource` (connection + SQL)
@@ -119,18 +120,27 @@ each input's `propertyName` **exactly matching** the parameter `internalName`. F
 overall markup shape. The build script can emit this too (`--form` mode) or you can assemble it
 inline. Skip this step only if the report has no filters.
 
-### Step 5 — Deploy live to the target site
+### Step 5 — Deploy (create) or update live
 
-Run the deploy script. It authenticates, then creates the artifacts in the correct order
-(form → report → parameters) and links them:
+Run the deploy script. It authenticates, then creates the artifacts in order (form → report →
+parameters) and links them:
 
 ```bash
 node <skill-dir>/scripts/deploy-report.js <baseUrl> <username> '<password>' <deploy.json> [--dry-run]
 ```
 
-Always run `--dry-run` first and show the user the planned payloads. Endpoint paths, payload
-shapes, and the create order are in [reference/api-access.md](reference/api-access.md). After the
-real run, capture the returned report `id`.
+**Updating an existing report** (later changes — new charts, tweaked SQL, extra filters): rebuild
+the artifacts and re-run with the report's `id` (as `report.id` in `deploy.json` or `--report-id
+<guid>`). The script then **updates in place** — it never deletes/recreates the report:
+- report → `ReportingReport/Update` (merges your changes over the existing DTO, same id);
+- form → `FormConfiguration/UpdateMarkup` on the existing form (or creates it if missing), kept Live;
+- parameters → reconciled by `internalName` (existing updated, new created; obsolete ones are kept
+  unless you pass `--prune-params`).
+
+The report `id` comes from the original create (or `GetParameters`/the viewer URL). Always run
+`--dry-run` first and show the user the planned payloads. Endpoint paths, payload shapes, and the
+create/update order are in [reference/api-access.md](reference/api-access.md). After the real run,
+capture the report `id`.
 
 ### Step 6 — Verify
 
