@@ -1,7 +1,8 @@
-# API Access — Authenticate & Create
+# API Access — Authenticate, Create & Update
 
 All writes go through the target site's REST API. `scripts/deploy-report.js` performs them in
-order; this document is the contract it implements and what to check if a call fails.
+order (create or update); this document is the contract it implements and what to check if a call
+fails.
 
 ## Table of contents
 - [Authenticate](#authenticate)
@@ -9,6 +10,7 @@ order; this document is the contract it implements and what to check if a call f
 - [Create the filter form](#create-the-filter-form)
 - [Create the report](#create-the-report)
 - [Create the parameters](#create-the-parameters)
+- [Updating an existing report (in place)](#updating-an-existing-report-in-place)
 - [Verify](#verify)
 - [Module route note](#module-route-note)
 
@@ -114,6 +116,38 @@ Authorization: Bearer <token>
 ```
 `type` is a reference-list value — send `{ "itemValue": <n> }`. If the CRUD service rejects that
 shape, retry with a bare `"type": <n>`.
+
+## Updating an existing report (in place)
+
+To apply later changes, **update** the existing records — never delete + recreate. Trigger by
+passing the report `id` (`report.id` in `deploy.json` or `--report-id`). Order: form → report →
+parameters.
+
+**Form** — reuse the existing one if present:
+```
+GET  .../Shesha/FormConfiguration/GetByName?module=<m>&name=<n>   # → result.id (or 404 ⇒ create it)
+PUT  .../Shesha/FormConfiguration/UpdateMarkup   { "id": "<formId>", "markup": "<...>" }
+PUT  .../Shesha/FormConfiguration/UpdateStatus   { "filter": "{\"==\":[{\"var\":\"id\"},\"<formId>\"]}", "status": 3 }
+```
+`UpdateMarkup` on a live form keeps it Live (verified).
+
+**Report** — merge changes over the current DTO, keep the same id:
+```
+GET {baseUrl}/api/services/DevExpressReporting/ReportingReport/Get?id=<reportId>   # existing DTO
+PUT {baseUrl}/api/services/DevExpressReporting/ReportingReport/Update              # { ...existing, ...changes }
+```
+Send the full merged DTO (existing fields + your new `reportDefinitionXml`/metadata) so unset
+fields aren't wiped.
+
+**Parameters** — reconcile by `internalName`:
+```
+GET  .../ReportingReport/GetParameters?reportId=<reportId>        # existing params (with ids)
+PUT  .../ReportingReportParameter/Update  { ...existing, ...changes, "id": "<paramId>" }   # match found
+POST .../ReportingReportParameter/Create  { ... }                                          # no match
+DELETE .../ReportingReportParameter/Delete?id=<paramId>                                     # obsolete (only with --prune-params)
+```
+By default obsolete parameters are **kept** (logged); pass `--prune-params` to remove ones no longer
+in the spec.
 
 ## Verify
 
