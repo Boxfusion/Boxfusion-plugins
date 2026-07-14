@@ -18,17 +18,30 @@ Read the bundled references as you reach each step — do not preload them all.
 
 ## Prerequisites
 
-Ask for these up front (like the generate-sql-query skill) and stop if any required one is missing:
+**HARD GATE — always prompt, never assume.** Before doing anything else, obtain these from the
+user **in the current request**:
 
 - **Target site base URL** — the running Shesha site to configure (e.g. `https://myapp.boxfusion.co.za`).
 - **Admin credentials** — `username` + `password` (a user in `app:Configurator` / SysAdmin).
+
+If the base URL, username, or password is **not explicitly provided in the current request, STOP and
+ask for it.** Never fill these in from: an earlier message or a previous report in this conversation,
+a prior run, memory, an environment/config file, an example in these docs, or any default. There is
+no default site and no default login — a wrong target could write a report to the wrong system.
+Re-prompt on every run unless the user has, in this same request, told you which site + credentials
+to use. (The `deploy-report.js` and `discover-metadata.js` scripts also refuse to run without these
+passed as arguments — but the rule above is on you, not just the scripts.)
+
+Also gather (ask only if not inferable):
+
 - **MSSQL connection** — `mssql_server`, `mssql_database` (+ optional user/password). Needed by
-  generate-sql-query to validate the SQL, and to confirm result columns.
+  generate-sql-query to validate the SQL, and to confirm result columns. (Optional if the report
+  resolves its connection server-side via the named `Default` connection.)
 - **Report requirement** — the natural-language description of what the report should show and
   which filters the end user needs.
 
-`Node.js` must be available (`node --version`) — the two bundled scripts run under it. No npm
-install is required; the scripts use only Node's built-in `https`/`http` and `crypto`.
+`Node.js` must be available (`node --version`) — the bundled scripts run under it. No npm install is
+required; the scripts use only Node's built-in `https`/`http` and `crypto`.
 
 ## Pipeline
 
@@ -44,12 +57,21 @@ From the requirement, settle these before generating anything (ask only what you
   date, datetime, boolean, reference-list, entity reference). These become both report parameters
   and filter-form fields.
 
-**Never hardcode project-specific names.** Reference-list names/modules, entity types, display
-properties, category values, and reflist item values are all **resolved from the target site's
-APIs** (exactly like generate-sql-query) — read
-[reference/data-model.md](reference/data-model.md#discovering-valid-values) for the exact endpoints
-and resolve every reflist/entity filter and the `Category`/`ConnectionStringName` there before
-building. If a value can't be resolved on the target site, stop and ask — do not guess.
+**Never hardcode project-specific names.** Reference-list names/modules, entity types, FK columns,
+category values, and reflist item values are all **resolved from the target site's APIs** before
+building. Use the bundled discovery script:
+
+```bash
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' entity <ClassName>   # table, FK columns, reflist props
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' reflist <name>       # full reflist name/module + item values
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' category             # valid report categories
+```
+
+See [reference/data-model.md](reference/data-model.md#discovering-valid-values) for details. Resolve
+every reflist/entity filter, the agent/lookup columns, and `Category`/`ConnectionStringName` this way.
+If a reflist has **several matches with differing item values**, either pick the one for the exact
+column or resolve labels in SQL via `dbo.Frwk_GetRefListItem('<module>','<ShortName>', <col>)`. If a
+value can't be resolved on the target site, stop and ask — do not guess.
 
 ### Step 2 — Generate the SQL
 
@@ -81,6 +103,13 @@ node <skill-dir>/scripts/build-report-xml.js <spec.json> > report.xml
 `Report`, the pivot grid for `Pivot`, and the chart+summary layout for `Dashboard`, wires the
 `SqlDataSource` to the named connection, declares the report parameters, and binds query
 parameters to them.
+
+**Styling**: every report is styled with a polished, brand-neutral look **by default** (report
+header with title/logo/generated-date/accent line, colored table headers, banded KPI cards, themed
+chart palette, page footer). To **follow a supplied design**, pass a `theme` object in the spec
+(colors, font, title size, `logoBase64`, `footerText`, `chartPalette`) — see
+[reference/report-xml.md](reference/report-xml.md#styling-theme). If the user gives brand colors or
+a logo, map them into `theme`; otherwise omit it and the defaults apply.
 
 ### Step 4 — Build the filter form markup
 
@@ -130,5 +159,6 @@ Never claim success without the Step-6 fetch/render check.
 - [reference/filter-form.md](reference/filter-form.md) — Shesha `ConfigurableForm` markup per data type; propertyName alignment rules.
 - [reference/form-components.md](reference/form-components.md) — catalog of all supported form components and their property shapes (from a survey of real Shesha forms); how to emit any component via `component` / `componentProps`.
 - [reference/api-access.md](reference/api-access.md) — authentication + create endpoints, payloads, and deploy order.
+- `scripts/discover-metadata.js` — resolves entities/tables/FK columns, reference-list names+modules+items, and report categories from the target site (so nothing is hardcoded).
 - `scripts/build-report-xml.js` — builds `ReportDefinitionXml` (and optionally the form markup) offline.
 - `scripts/deploy-report.js` — authenticates and creates form + report + parameters via the API.
