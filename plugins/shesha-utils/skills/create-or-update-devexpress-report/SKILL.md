@@ -164,9 +164,17 @@ Never claim success without the Step-6 fetch/render check.
 
 | Type | Value | What the script generates | Notes |
 |------|-------|---------------------------|-------|
-| Report | 1 | Title band + column-header band + detail `XRTable` bound to SELECT columns | Full support |
+| Report | 1 | Title band + column-header band + detail `XRTable` bound to SELECT columns | Full support; optionally set `charts[]` in the spec to stack chart(s) above the table (see below) |
 | Pivot | 2 | `XRPivotGrid` with row/column/data fields from the spec | Set `pivot` fields in spec |
 | Dashboard | 3 | Summary labels + `XRChart` (series bound to columns) | Chart-style report; simpler than a native DX dashboard |
+
+**Adding a chart to a tabular report** (e.g. "add a pie chart to this case list report"): this is a
+`Report`-type spec with a `charts[]` array — the table stays, the chart(s) render in the report
+header above it. Charts can bind to a second entry in `queries[]` when they aggregate data the
+table doesn't show (e.g. counts grouped by a column). To add one to an **existing** report, rebuild
+its full spec (table + queries + parameters, reconstructed from the requirement and
+`discover-metadata.js`) with the new `charts[]` and redeploy by `id` — see
+[reference/report-xml.md](reference/report-xml.md#charts-on-a-tabular-report) for the spec shape.
 
 ## Bundled resources
 
