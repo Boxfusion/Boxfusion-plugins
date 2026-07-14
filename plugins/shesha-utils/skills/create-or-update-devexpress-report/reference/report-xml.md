@@ -50,7 +50,8 @@ single source of truth — correct the format there if a serializer detail chang
   ],
   "pivot":     { "rows": ["Region"], "columns": ["Year"], "data": [{ "field": "Total", "summary": "Sum", "format": "{0:n2}" }] },
   "dashboard": { "argument": "Region", "series": [{ "field": "Total", "summary": "COUNT()" }], "kpis": [{ "field": "Total", "caption": "Total", "summary": "Sum", "format": "{0:n2}" }] },
-  "charts":    [{ "title": "By Status", "dataMember": "StatusCounts", "chartType": "pie", "argument": "Status", "series": [{ "caption": "Orders", "valueField": "Cnt" }] }]  // type:"Report" only — see "Charts on a tabular report" below
+  "charts":    [{ "title": "By Status", "dataMember": "StatusCounts", "chartType": "pie", "argument": "Status", "series": [{ "caption": "Orders", "valueField": "Cnt" }] }],  // type:"Report" only — see "Charts on a tabular report" below
+  "filtersSummaryExpression": "Max([FiltersSummary.SummaryText])"  // OPTIONAL — see "Applied filters summary" below
 }
 ```
 
@@ -250,6 +251,41 @@ the DevExpress designer) and must be preserved byte-for-byte apart from the addi
 chart XML directly into the fetched `reportDefinitionXml` is the fallback — but that path is
 one-off and not what `build-report-xml.js` does.
 
+### Applied filters summary
+
+`spec.filtersSummaryExpression` adds one more line to the ReportHeader, below the title/description
+and above the "Generated: …" timestamp, showing the currently-applied filter selections (or "All"
+per filter when nothing/everything is selected) — e.g. "Category: All | Case Type: All | Status:
+Open, Closed | Priority: All | Channel: All". Works on any report type (`Report`, `Pivot`,
+`Dashboard`); on tabular reports it composes correctly with `charts[]` (the charts are pushed down
+to make room).
+
+**Compute the summary text in SQL, not in the DevExpress expression** — the report `Parameters` you
+bind a filter form to hold the raw comma-joined string the SQL side consumes (e.g. `"1,2"`), not
+human-readable labels, and DevExpress's report-expression language has no real string-list/lookup
+functions to turn that into "Category: Services, Complaints" or detect "all selected" client-side.
+Instead add a second, single-row query to `queries[]` that pre-formats the whole line server-side
+using `CASE`/`STRING_AGG`, and point `filtersSummaryExpression` at it with `Max(...)` (safe for a
+single-row result, and works on strings):
+
+```jsonc
+{
+  "filtersSummaryExpression": "Max([FiltersSummary.SummaryText])",
+  "queries": [
+    { "name": "CasesData", "sql": "SELECT ... FROM SM_Cases WHERE (@categories IS NULL OR ...) ...", "columns": [ ... ] },
+    { "name": "FiltersSummary", "sql":
+      "SELECT 'Category: ' + CASE WHEN @categories IS NULL THEN 'All' WHEN (SELECT COUNT(*) FROM string_split(@categories,',')) >= 2 THEN 'All' ELSE (SELECT STRING_AGG(CASE Value WHEN '1' THEN 'Services' WHEN '2' THEN 'Complaints' END, ', ') FROM string_split(@categories,',')) END AS SummaryText",
+      "columns": [ { "field": "SummaryText", "caption": "Summary", "type": "System.String" } ] }
+  ]
+}
+```
+
+The `>= <total active items>` check is what makes "select all" collapse to "All" instead of listing
+every option — get the real total from the live reference list / entity count (see
+[data-model.md](data-model.md#discovering-valid-values)), don't guess it. Every query in
+`queries[]` receives all of `spec.parameters` automatically (see the multi-query note above), so
+`@categories` etc. are already in scope in `FiltersSummary`'s SQL — no extra wiring needed.
+
 ## Pivot / Dashboard
 
 Both reuse the same envelope + Base64 data source; only the detail band differs.
@@ -288,11 +324,23 @@ SqlDataSource `ObjectType` uses the short form `DevExpress.DataAccess.Sql.SqlDat
 
 ## Troubleshooting
 
-- **Viewer errors loading the layout** → confirm the install is DevExpress `23.1.x`; if not, change
-  `SerializerVersion`, `Version=`, and the `v23.1` assembly tokens in `build-report-xml.js`.
+**Don't diagnose XML/layout problems by guessing — use the DXXRDV render check**
+([api-access.md](api-access.md#verify)) to get an authoritative success/failure signal from the
+actual report engine before changing anything below.
+
+- **Viewer errors loading the layout** → this is *not* necessarily a `SerializerVersion` mismatch:
+  confirmed live that a layout serialized as `23.1.5.0` loads fine under a site whose web viewer
+  reports `"reporting":"23.2.13"` in its `dxversions` — the layout serializer version and the
+  installed web-viewer/analytics version are independent numbers, and DevExpress's serializer is
+  backward-compatible across 23.x. Don't "fix" `SerializerVersion`/`Version=`/the `v23.1` assembly
+  tokens in `build-report-xml.js` just because `dxversions` shows a newer number — verify with
+  DXXRDV first; only change these if that check actually shows a load failure tied to the version.
 - **Columns blank** → a detail-cell `Expression="[{view}.{field}]"` doesn't match a `ResultSchema`
   field / SELECT alias. Alias every column; keep `queryName` consistent everywhere.
 - **Filters do nothing** → parameter `Name` / `internalName` / form `propertyName` / SQL `@param`
   mismatch. See [data-model.md](data-model.md#how-a-filter-reaches-the-sql).
+- **Filter picker shows raw ids/guids instead of names, or the wrong record gets selected** → this
+  is an `entityDisplayProperty`/value-shape bug, not an XML bug — see
+  [filter-form.md](filter-form.md#verify-entitydisplayproperty-before-trusting-it).
 - **Last-resort repair** → open the report once in the DevExpress designer and save; it rewrites the
   layout in the exact serialization the install expects.
