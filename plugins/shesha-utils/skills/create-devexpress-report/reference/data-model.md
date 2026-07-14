@@ -96,9 +96,24 @@ the SQL then filters using `@startDate`. If any name differs, the filter silentl
 ## Discovering valid values
 
 **Nothing project-specific is hardcoded.** Categories, reference-list names/modules, entity types,
-and reflist item values are all resolved from the **target site's APIs** at build time — the same
-approach the generate-sql-query skill uses. Authenticate first (`POST /api/TokenAuth/Authenticate`
-→ `result.accessToken`) and send `Authorization: Bearer <token>`.
+FK columns, and reflist item values are all resolved from the **target site's APIs** at build time.
+
+**Use the bundled `scripts/discover-metadata.js`** — it does all of this for you (auth + the calls
+below) and prints JSON:
+```bash
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' entities [substr]   # find a table/entity
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' entity <ClassName>  # table, module, entity-FK props (fkColumn), reflist props
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' reflist <name>       # full reflist name(s)+module+items — warns on duplicates
+node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' category             # ReportCategory items
+```
+`entity` returns each entity property's `fkColumn` (Shesha convention `<Nav>Id`) and, for
+reference-list properties, the full `referenceListName`/`referenceListModule` — feed these straight
+into the report spec. `reflist` returns **every** match with its items and warns when several exist
+(their item values can differ — pick the one for the column you are mapping, or resolve labels in
+SQL via `dbo.Frwk_GetRefListItem('<module>','<ShortName>', <col>)` to sidestep the ambiguity).
+
+The endpoints it calls (if you prefer to do it by hand): `POST /api/TokenAuth/Authenticate`
+→ `result.accessToken`, then `Authorization: Bearer <token>` on:
 
 **Report category** (`ReportType`/`ReportCategory` are the DevExpressReporting module's own
 reflists) — enumerate items via the `Entities/GetAll` pattern (the `ReferenceList/GetItems`

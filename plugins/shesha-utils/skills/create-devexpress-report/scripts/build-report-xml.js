@@ -60,25 +60,35 @@ function queryParametersXml(params) {
   ).join('');
 }
 
-function resultSchemaXml(spec) {
-  const dsName = spec.dataSourceName || 'ReportData';
-  const view = spec.queryName || 'Query';
-  const fields = (spec.columns || []).map((c) =>
-    `<Field Name="${xmlEscape(c.field)}" Type="${SCHEMA_TYPE[c.type] || 'String'}" />`
-  ).join('');
-  return `<ResultSchema><DataSet Name="${xmlEscape(dsName)}"><View Name="${xmlEscape(view)}">${fields}</View></DataSet></ResultSchema>`;
+// A report can have one query (spec.sql/queryName/columns) or several (spec.queries[]).
+// Each query = { name, sql, columns:[{field,type}] } and becomes a <Query> + a ResultSchema <View>.
+function queriesOf(spec) {
+  if (Array.isArray(spec.queries) && spec.queries.length) {
+    return spec.queries.map((q) => ({ name: q.name, sql: q.sql, columns: q.columns || [] }));
+  }
+  return [{ name: spec.queryName || 'Query', sql: spec.sql, columns: spec.columns || [] }];
 }
 
 function sqlDataSourceBase64(spec) {
   const dsName = spec.dataSourceName || 'ReportData';
+  const queries = queriesOf(spec);
+  // Every query declares all report parameters, so @params bind in each query's SQL.
+  const queriesXml = queries.map((q) =>
+    `<Query Type="CustomSqlQuery" Name="${xmlEscape(q.name)}">` +
+    queryParametersXml(spec.parameters) +
+    `<Sql>${xmlEscape(q.sql)}</Sql>` +
+    `</Query>`
+  ).join('');
+  const views = queries.map((q) => {
+    const fields = (q.columns || []).map((c) =>
+      `<Field Name="${xmlEscape(c.field)}" Type="${SCHEMA_TYPE[c.type] || 'String'}" />`).join('');
+    return `<View Name="${xmlEscape(q.name)}">${fields}</View>`;
+  }).join('');
   const inner =
     `<SqlDataSource Name="${xmlEscape(dsName)}">` +
     connectionXml(spec) +
-    `<Query Type="CustomSqlQuery" Name="${xmlEscape(spec.queryName || 'Query')}">` +
-    queryParametersXml(spec.parameters) +
-    `<Sql>${xmlEscape(spec.sql)}</Sql>` +
-    `</Query>` +
-    resultSchemaXml(spec) +
+    queriesXml +
+    `<ResultSchema><DataSet Name="${xmlEscape(dsName)}">${views}</DataSet></ResultSchema>` +
     `<ConnectionOptions CloseConnection="true" />` +
     `</SqlDataSource>`;
   return Buffer.from(inner, 'utf8').toString('base64');
@@ -134,38 +144,112 @@ function buildParametersAndStorage(spec) {
 
 // ── bands ────────────────────────────────────────────────────────────────────
 
+// ── theme ────────────────────────────────────────────────────────────────────
+
+function hexToArgb(hex) {
+  let h = String(hex).replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return `255,${r},${g},${b}`;
+}
+// Normalise a colour to DevExpress "a,r,g,b". Accepts #RRGGBB, "r,g,b", "a,r,g,b", or a named colour.
+function argb(c) {
+  if (!c) return c;
+  if (String(c)[0] === '#') return hexToArgb(c);
+  const parts = String(c).split(',');
+  if (parts.length === 3) return `255,${c}`;
+  return c;
+}
+
+// Resolve the report theme: professional defaults, fully overridable via spec.theme so a supplied
+// design can be followed. All colours normalised to "a,r,g,b".
+function resolveTheme(spec) {
+  const t = spec.theme || {};
+  return {
+    // Default to Arial: it renders on Windows AND on Linux/Skia report servers. Fonts like
+    // "Segoe UI" are Windows-only and throw ArgumentException at document build on Linux hosts.
+    font: t.fontFamily || 'Arial',
+    primary: argb(t.primaryColor || '#2E4A62'),
+    accent: argb(t.accentColor || '#E8863C'),
+    headerText: argb(t.headerTextColor || '#FFFFFF'),
+    band: argb(t.bandColor || '#EEF2F6'),
+    text: argb(t.textColor || '#333333'),
+    grid: argb(t.gridColor || '#D9DEE4'),
+    titleSize: t.titleSize || 16,
+    logoBase64: t.logoBase64 || null,
+    footerText: t.footerText || t.organizationName || '',
+    chartPalette: t.chartPalette || 'Nature Colors',
+  };
+}
+
+// Content width = page width minus the 50+50 margins.
+function contentWidth(spec) { return (spec.pageWidth || (spec.landscape ? 1100 : 850)) - 100; }
+
+// Shared, styled ReportHeader controls: optional logo, title, description, generated-on, accent line.
+function headerControls(theme, spec, pageW) {
+  const items = [];
+  let n = 0; const next = () => ++n;
+  if (theme.logoBase64) {
+    items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPictureBox" Name="logo" ImageSource="img,${theme.logoBase64}" Sizing="ZoomImage" SizeF="150,45" LocationFloat="${pageW - 150},0" />`);
+  }
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="${pageW - 160},30" LocationFloat="0,4" Font="${theme.font}, ${theme.titleSize}pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
+  if (spec.description) {
+    items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblSubtitle" Text="${xmlEscape(spec.description)}" SizeF="${pageW - 160},18" LocationFloat="0,36" Font="${theme.font}, 9pt" ForeColor="${theme.text}" Padding="2,2,0,0,100" />`);
+  }
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPageInfo" Name="genDate" PageInfo="DateTime" TextFormatString="Generated: {0:dd MMM yyyy HH:mm}" TextAlignment="MiddleRight" SizeF="240,16" LocationFloat="${pageW - 240},58" Font="${theme.font}, 8pt" ForeColor="${theme.text}" />`);
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLine" Name="accentLine" LineWidth="2" SizeF="${pageW},4" LocationFloat="0,78" ForeColor="${theme.accent}" />`);
+  return items.join('\n');
+}
+
+// Shared, styled BottomMargin controls: accent line, footer text, page numbers.
+function footerControls(theme, pageW) {
+  const items = [];
+  let n = 0; const next = () => ++n;
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLine" Name="footLine" LineWidth="1" SizeF="${pageW},2" LocationFloat="0,4" ForeColor="${theme.accent}" />`);
+  if (theme.footerText) {
+    items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="footText" Text="${xmlEscape(theme.footerText)}" SizeF="${pageW - 160},16" LocationFloat="0,10" Font="${theme.font}, 8pt" ForeColor="${theme.text}" Padding="2,2,0,0,100" />`);
+  }
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPageInfo" Name="pageInfo" PageInfo="NumberOfTotal" TextFormatString="Page {0} of {1}" TextAlignment="MiddleRight" SizeF="150,16" LocationFloat="${pageW - 150},10" Font="${theme.font}, 8pt" ForeColor="${theme.text}" />`);
+  return items.join('\n');
+}
+
+// ── bands ────────────────────────────────────────────────────────────────────
+
 function tabularBands(spec) {
+  const theme = resolveTheme(spec);
   const cols = spec.columns || [];
-  const totalW = 750;
+  const totalW = contentWidth(spec);
   const weight = cols.length ? +(totalW / cols.length).toFixed(2) : totalW;
   const view = spec.queryName || 'Query';
 
   const headerCells = cols.map((c, i) =>
-    `                <Item${i + 1} Ref="${nextRef()}" ControlType="XRTableCell" Name="hc_${xmlEscape(c.field)}" Weight="${weight}" Text="${xmlEscape(c.caption || c.field)}" Font="Arial, 9.75pt, style=Bold" />`
+    `                <Item${i + 1} Ref="${nextRef()}" ControlType="XRTableCell" Name="hc_${xmlEscape(c.field)}" Weight="${weight}" Text="${xmlEscape(c.caption || c.field)}" Font="${theme.font}, 9.75pt, style=Bold" ForeColor="${theme.headerText}" BackColor="${theme.primary}" Padding="6,6,4,4,100" TextAlignment="MiddleLeft" />`
   ).join('\n');
 
   const detailCells = cols.map((c, i) => {
     const fmt = c.format ? ` TextFormatString="${xmlEscape(c.format)}"` : '';
-    return `                <Item${i + 1} Ref="${nextRef()}" ControlType="XRTableCell" Name="dc_${xmlEscape(c.field)}" Weight="${weight}"${fmt}>\n` +
+    const align = /Int|Decimal|Double|Single/.test(c.type || '') ? 'MiddleRight' : 'MiddleLeft';
+    return `                <Item${i + 1} Ref="${nextRef()}" ControlType="XRTableCell" Name="dc_${xmlEscape(c.field)}" Weight="${weight}"${fmt} Font="${theme.font}, 9pt" ForeColor="${theme.text}" Borders="Bottom" BorderColor="${theme.grid}" Padding="6,6,4,4,100" TextAlignment="${align}">\n` +
       `                  <ExpressionBindings>\n` +
       `                    <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="[${xmlEscape(view)}.${xmlEscape(c.field)}]" />\n` +
       `                  </ExpressionBindings>\n` +
       `                </Item${i + 1}>`;
   }).join('\n');
 
-  const titleRef = nextRef(), phTableRef = nextRef(), phRowRef = nextRef();
+  const header = headerControls(theme, spec, totalW);
+  const phTableRef = nextRef(), phRowRef = nextRef();
   const dTableRef = nextRef(), dRowRef = nextRef();
 
   return `  <Bands>
-    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="50" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="45">
+    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
       <Controls>
-        <Item1 Ref="${titleRef}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="${totalW},30" LocationFloat="0,0" Font="Arial, 14pt, style=Bold" />
+${header}
       </Controls>
     </Item2>
-    <Item3 Ref="${nextRef()}" ControlType="PageHeaderBand" Name="PageHeader" HeightF="25">
+    <Item3 Ref="${nextRef()}" ControlType="PageHeaderBand" Name="PageHeader" HeightF="28">
       <Controls>
-        <Item1 Ref="${phTableRef}" ControlType="XRTable" Name="tblHeader" SizeF="${totalW},25" LocationFloat="0,0">
+        <Item1 Ref="${phTableRef}" ControlType="XRTable" Name="tblHeader" SizeF="${totalW},28" LocationFloat="0,0">
           <Rows>
             <Item1 Ref="${phRowRef}" ControlType="XRTableRow" Name="tblHeaderRow" Weight="1">
               <Cells>
@@ -176,9 +260,9 @@ ${headerCells}
         </Item1>
       </Controls>
     </Item3>
-    <Item4 Ref="${nextRef()}" ControlType="DetailBand" Name="Detail" HeightF="25">
+    <Item4 Ref="${nextRef()}" ControlType="DetailBand" Name="Detail" HeightF="24">
       <Controls>
-        <Item1 Ref="${dTableRef}" ControlType="XRTable" Name="tblDetail" SizeF="${totalW},25" LocationFloat="0,0">
+        <Item1 Ref="${dTableRef}" ControlType="XRTable" Name="tblDetail" SizeF="${totalW},24" LocationFloat="0,0">
           <Rows>
             <Item1 Ref="${dRowRef}" ControlType="XRTableRow" Name="tblDetailRow" Weight="1">
               <Cells>
@@ -189,13 +273,19 @@ ${detailCells}
         </Item1>
       </Controls>
     </Item4>
-    <Item5 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="50" />
+    <Item5 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="40">
+      <Controls>
+${footerControls(theme, totalW)}
+      </Controls>
+    </Item5>
   </Bands>`;
 }
 
 function pivotBands(spec) {
+  const theme = resolveTheme(spec);
   const p = spec.pivot || { rows: [], columns: [], data: [] };
   const view = spec.queryName || 'Query';
+  const totalW = contentWidth(spec);
   const fields = [];
   let idx = 1;
   (p.rows || []).forEach((f, i) => fields.push(
@@ -207,98 +297,150 @@ function pivotBands(spec) {
     fields.push(
       `            <Item${idx++} Ref="${nextRef()}" FieldName="${xmlEscape(d.field)}" Area="DataArea" AreaIndex="${i}" Caption="${xmlEscape(d.caption || d.field)}" SummaryType="${d.summary || 'Sum'}"${fmt} />`);
   });
-  const titleRef = nextRef(), pivotRef = nextRef();
+  const header = headerControls(theme, spec, totalW);
+  const pivotRef = nextRef();
   return `  <Bands>
-    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="50" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="45">
+    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
       <Controls>
-        <Item1 Ref="${titleRef}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="750,30" LocationFloat="0,0" Font="Arial, 14pt, style=Bold" />
+${header}
       </Controls>
     </Item2>
     <Item3 Ref="${nextRef()}" ControlType="DetailBand" Name="Detail" HeightF="400">
       <Controls>
-        <Item1 Ref="${pivotRef}" ControlType="XRPivotGrid" Name="pivotGrid1" DataSource="#Ref-0" DataMember="${xmlEscape(view)}" SizeF="750,400" LocationFloat="0,0">
+        <Item1 Ref="${pivotRef}" ControlType="XRPivotGrid" Name="pivotGrid1" DataSource="#Ref-0" DataMember="${xmlEscape(view)}" SizeF="${totalW},400" LocationFloat="0,0" Font="${theme.font}, 9pt">
           <Fields>
 ${fields.join('\n')}
           </Fields>
         </Item1>
       </Controls>
     </Item3>
-    <Item4 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="50" />
+    <Item4 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="40">
+      <Controls>
+${footerControls(theme, totalW)}
+      </Controls>
+    </Item4>
   </Bands>`;
 }
 
-function dashboardBands(spec) {
-  const d = spec.dashboard || { argument: '', series: [], kpis: [] };
-  const view = spec.queryName || 'Query';
-  // KPI labels: Item2.. in the ReportHeader (Item1 is the title).
-  const kpis = (d.kpis || []).map((k, i) => {
-    const fmt = k.format ? ` TextFormatString="${xmlEscape(k.format)}"` : '';
-    const x = i * 250;
-    return `        <Item${i + 2} Ref="${nextRef()}" ControlType="XRLabel" Name="kpi_${xmlEscape(k.field)}" SizeF="240,40" LocationFloat="${x},40" Font="Arial, 12pt, style=Bold"${fmt}>\n` +
-      `          <ExpressionBindings>\n` +
-      `            <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="'${xmlEscape(k.caption || k.field)}: ' + ${k.summary || 'Sum'}([${xmlEscape(view)}.${xmlEscape(k.field)}])" />\n` +
-      `          </ExpressionBindings>\n` +
-      `        </Item${i + 2}>`;
-  }).join('\n');
+// chartType → DevExpress series view + whether it uses an XY (axis) diagram.
+const CHART_VIEW = {
+  bar: { view: 'SideBySideBarSeriesView', xy: true },
+  stackedbar: { view: 'StackedBarSeriesView', xy: true },
+  line: { view: 'LineSeriesView', xy: true },
+  area: { view: 'AreaSeriesView', xy: true },
+  pie: { view: 'PieSeriesView', xy: false },
+  doughnut: { view: 'DoughnutSeriesView', xy: false },
+};
+function resolveChartView(ch) {
+  if (ch.viewType) return { view: ch.viewType, xy: !/Pie|Doughnut|Funnel/i.test(ch.viewType) };
+  return CHART_VIEW[(ch.chartType || 'bar').toLowerCase()] || CHART_VIEW.bar;
+}
 
-  const viewType = d.viewType || 'SideBySideBarSeriesView'; // bar graph by default
-  // Two series modes:
-  //  - value series: series has `valueField` → plots a pre-aggregated numeric column (grouped bars).
-  //  - count series: no `valueField` → COUNT() of rows per argument value.
-  const series = (d.series || []).map((s, i) => {
+// One XRChart control (as Item{idx}) bound to chart.dataMember. value series (valueField) plot a
+// pre-aggregated column; count series COUNT() rows. Pie/doughnut omit the XY diagram.
+function chartControl(theme, ch, idx, x, y, w, h) {
+  const dm = ch.dataMember;
+  const cv = resolveChartView(ch);
+  const seriesXml = (ch.series || []).map((s, i) => {
     const sRef = nextRef(), vRef = nextRef();
-    const arg = `ArgumentDataMember="${xmlEscape(view)}.${xmlEscape(d.argument)}"`;
-    const name = xmlEscape(s.caption || s.field || s.valueField || `Series${i + 1}`);
+    const arg = `ArgumentDataMember="${xmlEscape(dm)}.${xmlEscape(ch.argument)}"`;
+    const name = xmlEscape(s.caption || s.valueField || s.field || `Series${i + 1}`);
     if (s.valueField) {
-      return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ValueDataMembersSerializable="${xmlEscape(view)}.${xmlEscape(s.valueField)}" ArgumentScaleType="Qualitative" ValueScaleType="Numerical">\n` +
-        `                  <View Ref="${vRef}" TypeNameSerializable="${xmlEscape(viewType)}" />\n` +
+      return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ValueDataMembersSerializable="${xmlEscape(dm)}.${xmlEscape(s.valueField)}" ArgumentScaleType="Qualitative" ValueScaleType="Numerical">\n` +
+        `                  <View Ref="${vRef}" TypeNameSerializable="${cv.view}" />\n` +
         `                </Item${i + 1}>`;
     }
     const qRef = nextRef();
     return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ArgumentScaleType="Qualitative">\n` +
-      `                  <View Ref="${vRef}" ColorEach="true" TypeNameSerializable="${xmlEscape(viewType)}" />\n` +
+      `                  <View Ref="${vRef}" ColorEach="true" TypeNameSerializable="${cv.view}" />\n` +
       `                  <QualitativeSummaryOptions Ref="${qRef}" SummaryFunction="${s.summary || 'COUNT()'}" />\n` +
       `                </Item${i + 1}>`;
   }).join('\n');
-
-  const titleRef = nextRef();
-  const chartRef = nextRef(), chartRef2 = nextRef(), dcRef = nextRef();
-  const diaRef = nextRef(), axXRef = nextRef(), axYRef = nextRef(), legRef = nextRef();
-  return `  <Bands>
-    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="50" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="100">
-      <Controls>
-        <Item1 Ref="${titleRef}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="750,30" LocationFloat="0,0" Font="Arial, 14pt, style=Bold" />
-${kpis}
-      </Controls>
-    </Item2>
-    <Item3 Ref="${nextRef()}" ControlType="DetailBand" Name="Detail" HeightF="320">
-      <Controls>
-        <Item1 Ref="${chartRef}" ControlType="XRChart" Name="chart1" DataSource="#Ref-0" SizeF="750,300" LocationFloat="0,0" Borders="None">
-          <Chart Ref="${chartRef2}" PaletteName="Nature Colors">
-            <DataContainer Ref="${dcRef}" DataMember="${xmlEscape(view)}" ValidateDataMembers="true">
+  const chRef = nextRef(), chRef2 = nextRef(), dcRef = nextRef(), legRef = nextRef();
+  const diagram = cv.xy
+    ? `            <Diagram Ref="${nextRef()}" TypeNameSerializable="XYDiagram">\n              <AxisX Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n              <AxisY Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n            </Diagram>\n`
+    : '';
+  return `        <Item${idx} Ref="${chRef}" ControlType="XRChart" Name="chart${idx}" DataSource="#Ref-0" SizeF="${w},${h}" LocationFloat="${x},${y}" Borders="None">
+          <Chart Ref="${chRef2}" PaletteName="${xmlEscape(theme.chartPalette)}">
+            <DataContainer Ref="${dcRef}" DataMember="${xmlEscape(dm)}" ValidateDataMembers="true">
               <SeriesSerializable>
-${series}
+${seriesXml}
               </SeriesSerializable>
             </DataContainer>
-            <Diagram Ref="${diaRef}" TypeNameSerializable="XYDiagram">
-              <AxisX Ref="${axXRef}" VisibleInPanesSerializable="-1" />
-              <AxisY Ref="${axYRef}" VisibleInPanesSerializable="-1" />
-            </Diagram>
-            <Legend Ref="${legRef}" LegendID="-1" />
+${diagram}            <Legend Ref="${legRef}" LegendID="-1" />
           </Chart>
-        </Item1>
+        </Item${idx}>`;
+}
+
+function dashboardBands(spec) {
+  const theme = resolveTheme(spec);
+  const d = spec.dashboard || {};
+  const primary = queriesOf(spec)[0].name;
+  const totalW = contentWidth(spec);
+
+  // Charts: use d.charts[] when present; otherwise wrap the legacy single-chart config.
+  const charts = (d.charts && d.charts.length)
+    ? d.charts.map((c) => ({ ...c, dataMember: c.dataMember || primary }))
+    : [{ dataMember: primary, viewType: d.viewType || 'SideBySideBarSeriesView', argument: d.argument, series: d.series || [] }];
+
+  let ci = 0; const nextCi = () => ++ci;
+  const controls = [];
+
+  // KPI cards across the top.
+  const kpis = d.kpis || [];
+  kpis.forEach((k, i) => {
+    const fmt = k.format ? ` TextFormatString="${xmlEscape(k.format)}"` : '';
+    const x = i * (230 + 12);
+    const dm = k.dataMember || primary;
+    controls.push(
+      `        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="kpi_${xmlEscape(k.field)}" SizeF="230,48" LocationFloat="${x},0" BackColor="${theme.band}" ForeColor="${theme.primary}" Font="${theme.font}, 12pt, style=Bold" Padding="10,10,6,6,100" TextAlignment="MiddleLeft"${fmt}>\n` +
+      `          <ExpressionBindings>\n` +
+      `            <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="'${xmlEscape(k.caption || k.field)}: ' + ${k.summary || 'Sum'}([${xmlEscape(dm)}.${xmlEscape(k.field)}])" />\n` +
+      `          </ExpressionBindings>\n` +
+      `        </Item${ci}>`);
+  });
+
+  // Charts stacked vertically below the KPIs.
+  let y = kpis.length ? 60 : 0;
+  charts.forEach((ch) => {
+    if (ch.title) {
+      controls.push(`        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="chartTitle${ci}" Text="${xmlEscape(ch.title)}" SizeF="${totalW},18" LocationFloat="0,${y}" Font="${theme.font}, 11pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
+      y += 22;
+    }
+    const h = ch.height || 260;
+    controls.push(chartControl(theme, ch, nextCi(), 0, y, totalW, h));
+    y += h + 16;
+  });
+
+  const header = headerControls(theme, spec, totalW);
+  const detailH = y + 6;
+  return `  <Bands>
+    <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
+      <Controls>
+${header}
+      </Controls>
+    </Item2>
+    <Item3 Ref="${nextRef()}" ControlType="DetailBand" Name="Detail" HeightF="${detailH}">
+      <Controls>
+${controls.join('\n')}
       </Controls>
     </Item3>
-    <Item4 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="50" />
+    <Item4 Ref="${nextRef()}" ControlType="BottomMarginBand" Name="BottomMargin" HeightF="40">
+      <Controls>
+${footerControls(theme, totalW)}
+      </Controls>
+    </Item4>
   </Bands>`;
 }
 
 // ── assemble ─────────────────────────────────────────────────────────────────
 
 function buildReportXml(spec) {
-  if (!spec.sql) throw new Error('spec.sql is required');
+  if (!spec.sql && !(Array.isArray(spec.queries) && spec.queries.length)) {
+    throw new Error('spec.sql (or spec.queries[]) is required');
+  }
   refCounter = 2;
 
   const { parametersXml, objectStorageXml, panelXml } = buildParametersAndStorage(spec);
@@ -317,11 +459,13 @@ function buildReportXml(spec) {
     `  </ComponentStorage>`;
 
   const landscape = spec.landscape ? ' Landscape="true"' : '';
-  const pageW = spec.pageWidth || 850;
-  const pageH = spec.pageHeight || 1100;
+  const pageW = spec.pageWidth || (spec.landscape ? 1100 : 850);
+  const pageH = spec.pageHeight || (spec.landscape ? 850 : 1100);
+  const theme = resolveTheme(spec);
+  const dataMember = xmlEscape(queriesOf(spec)[0].name);
 
   return `<?xml version="1.0" encoding="utf-8"?>
-<XtraReportsLayoutSerializer SerializerVersion="${DX.serializer}" Ref="1" ControlType="${DX.xtraReport}" Name="${xmlEscape(spec.reportName || 'Report')}"${landscape} Margins="50, 50, 50, 50" PageWidth="${pageW}" PageHeight="${pageH}" Version="${DX.version}" DataSource="#Ref-0">
+<XtraReportsLayoutSerializer SerializerVersion="${DX.serializer}" Ref="1" ControlType="${DX.xtraReport}" Name="${xmlEscape(spec.reportName || 'Report')}"${landscape} Margins="50, 50, 50, 50" PageWidth="${pageW}" PageHeight="${pageH}" Font="${theme.font}, 9.75pt" DataMember="${dataMember}" Version="${DX.version}" DataSource="#Ref-0">
 ${parametersXml}${bands}
 ${panelXml}${componentStorage}
 ${objectStorageXml}</XtraReportsLayoutSerializer>`;

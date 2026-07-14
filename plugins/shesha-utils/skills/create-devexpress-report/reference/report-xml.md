@@ -31,6 +31,12 @@ single source of truth — correct the format there if a serializer detail chang
   "connectionString": "Data Source=...;Initial Catalog=...;User=...;Password=...;MultipleActiveResultSets=True;TrustServerCertificate=True",
   "queryName": "OverviewData",             // query + result-view name = data member
   "landscape": false, "pageWidth": 850, "pageHeight": 1100,
+  "theme": {                               // OPTIONAL — omit for the polished default look
+    "primaryColor": "#2E4A62", "accentColor": "#E8863C", "headerTextColor": "#FFFFFF",
+    "bandColor": "#EEF2F6", "textColor": "#333333", "gridColor": "#D9DEE4",
+    "fontFamily": "Arial", "titleSize": 16, "chartPalette": "Nature Colors",
+    "logoBase64": "<base64 png/jpg, optional>", "footerText": "Org name / footer line"
+  },
   "sql": "SELECT o.Id, o.OrderNo, o.Total, o.CreationTime FROM tbl_Orders o WHERE (@dateFrom IS NULL OR o.CreationTime >= @dateFrom) AND (@statuses IS NULL OR o.StatusLkp IN (SELECT Value FROM string_split(@statuses,',')))",
   "columns": [                             // SELECT output, in display order
     { "field": "OrderNo",      "caption": "Order No", "type": "System.String" },
@@ -47,9 +53,57 @@ single source of truth — correct the format there if a serializer detail chang
 }
 ```
 
+**Multiple queries + multiple charts** (e.g. a bar chart and a pie from different data): use
+`queries[]` instead of a single `sql`, and `dashboard.charts[]` instead of a single chart. Every
+query declares all report parameters, so `@param` filters bind in each:
+```jsonc
+{
+  "type": "Dashboard", "dataSourceName": "CasesData",
+  "queries": [
+    { "name": "MonthlyData", "sql": "SELECT ... GROUP BY month", "columns": [ ... ] },
+    { "name": "AgentData",   "sql": "SELECT TOP 10 Agent, COUNT(*) AS Cnt ... GROUP BY Agent", "columns": [ ... ] }
+  ],
+  "dashboard": {
+    "kpis": [ { "caption": "Total", "field": "CasesLogged", "dataMember": "MonthlyData", "summary": "Sum" } ],
+    "charts": [
+      { "title": "Logged vs Resolved", "dataMember": "MonthlyData", "chartType": "bar", "argument": "Period",
+        "series": [ { "caption": "Logged", "valueField": "CasesLogged" }, { "caption": "Resolved", "valueField": "CasesResolved" } ] },
+      { "title": "Top Agents", "dataMember": "AgentData", "chartType": "pie", "argument": "Agent",
+        "series": [ { "caption": "Cases", "valueField": "Cnt" } ] }
+    ]
+  }
+}
+```
+Each chart's `dataMember` names the query it binds to; `chartType` ∈ `bar | stackedBar | line |
+area | pie | doughnut` (or set `viewType` to a raw DevExpress series-view name). KPIs may set their
+own `dataMember`. Charts stack vertically under the KPI row.
+
 `columns[].type` / `parameters[].type` use .NET type names; `parameters[].dataType` is the
 `GeneralDataType` value used for the filter form (see [data-model.md](data-model.md)). `multiValue`
 params render as `string_split` list filters.
+
+## Styling (theme)
+
+Every report is styled **by default** — no `theme` needed. The builder applies a professional look
+to all three types via `resolveTheme` + shared `headerControls`/`footerControls`:
+- **Report header** on every report: title in the primary colour, optional logo (top-right),
+  optional description subtitle, a "Generated: …" timestamp, and an accent rule.
+- **Footer** (bottom margin): accent rule, optional footer/organization text, `Page X of Y`.
+- **Tabular**: header row filled with the primary colour + white bold text + padding; detail rows
+  with a light bottom border, padding, and right-aligned numeric columns.
+- **Dashboard**: KPI "cards" (banded background, primary text) above a palette-coloured chart.
+- **Pivot**: themed header/footer around the grid.
+
+**To follow a supplied design**, pass a `theme` object (all keys optional; see the `spec.json`
+example). Colours accept `#RRGGBB`, `r,g,b`, `a,r,g,b`, or a named colour — the builder normalises
+to DevExpress `a,r,g,b`. `logoBase64` embeds a logo; `chartPalette` is any DevExpress palette name
+(e.g. `Nature Colors`, `Northern Lights`, `Pastel Kit`). Nothing about the theme is hardcoded to a
+project — defaults are brand-neutral and every value is overridable.
+
+> **Fonts must exist on the report server.** The default `Arial` renders on both Windows and
+> Linux/Skia hosts. Windows-only fonts (e.g. `Segoe UI`) throw an `ArgumentException` at document
+> build on Linux servers ("Document creation was cancelled due to server error"). Only set
+> `fontFamily` to a font you know is installed on the target's render host.
 
 ## Envelope
 
@@ -170,8 +224,10 @@ Both reuse the same envelope + Base64 data source; only the detail band differs.
   - **count series** — `{ "caption","summary" }` (no `valueField`): counts rows per argument value
     (`QualitativeSummaryOptions SummaryFunction`, default `COUNT()`).
   `dashboard.argument` is the category axis column; `viewType` can be any DX series view
-  (`SideBySideBarSeriesView`, `StackedBarSeriesView`, `LineSeriesView`, `PieSeriesView`, …). Keep it
-  to one chart + KPI row; richer dashboards need the designer.
+  (`SideBySideBarSeriesView`, `StackedBarSeriesView`, `LineSeriesView`, `PieSeriesView`, …).
+  For **several charts** (and charts from different queries) use `dashboard.charts[]` + `queries[]`
+  (see the spec.json example above). Pie/doughnut charts omit the XY diagram automatically; bar/line
+  charts get an `XYDiagram` with X/Y axes.
 
 ## Type name reference
 
