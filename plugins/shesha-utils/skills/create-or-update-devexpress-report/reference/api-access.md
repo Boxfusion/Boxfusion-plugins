@@ -161,16 +161,58 @@ in the spec.
 
 ## Verify
 
+**Step 1 — fetch back** (cheap sanity check that the write actually landed):
 ```
 GET {baseUrl}/api/services/DevExpressReporting/ReportingReport/Get?id=<reportId>
 GET {baseUrl}/api/services/DevExpressReporting/ReportingReport/GetParameters?reportId=<reportId>
 ```
-Confirm the report returns with the XML and the expected parameter count. Then load the report
-viewer for `<reportId>` in the app and confirm it renders and the filter drawer shows the form.
+Confirm the report returns with the XML and the expected parameter count. This proves the row was
+saved — it does **not** prove the XML actually loads in the DevExpress report engine.
+
+**Step 2 — actually render it.** This is the real check, and it's scriptable — no browser needed.
+Don't go looking for a swagger-documented endpoint for this: on at least one real deployment
+`{baseUrl}/swagger/v1/swagger.json` 500s (a generic ABP swagger-generation issue, unrelated to
+reporting) while `{baseUrl}/swagger/index.html` still 200s — so swagger is not a reliable way to
+*discover* this endpoint even when it half-works. Call the report viewer's own open-document
+endpoint directly, confirmed against a live v0.43/DevExpress 23.2 site:
+```
+POST {baseUrl}/DXXRDV
+Authorization: Bearer <token>
+Content-Type: application/x-www-form-urlencoded
+
+actionKey=openReport&arg=<reportId>&dxversions={"analytics":"<ver>","devextreme":"<ver>","reporting":"<ver>"}
+```
+`dxversions` must match the versions the *installed front-end* actually reports (a mismatch is
+rejected) — ask the user for the exact JSON their viewer sends (visible in browser devtools on any
+report open), or reuse whatever value they've already given you for this site. Don't assume it has
+to match the `SerializerVersion`/`Version=` pinned in `build-report-xml.js` — those are independent
+numbers and a 23.1.5.0-serialized layout has been confirmed to load fine under a 23.2.13 web viewer;
+see the version note in [report-xml.md](report-xml.md#troubleshooting) before "fixing" either one.
+
+**This endpoint always returns HTTP 200 — even on failure** — so check the JSON body, never the
+status code:
+- **Success**: `"success":true`, `"error":null`, `result.parametersInfo.parameters` lists your
+  report's parameters by `Name`, `result.startBuildFaultMessage` is `null`. `result.reportId` here
+  is an internal document-session id (not your report's GUID) — ignore it; `result.reportUrl` echoes
+  back the report id you passed, which is the useful cross-check.
+- **Failure** (bad/unloadable XML, wrong report id, broken data source): `"success":false`,
+  `"error":"Exception occurred. See the log file for more details."`, `"result":null`. The message
+  itself is generic and gives no detail — don't try to parse a cause out of it; instead work through
+  [report-xml.md](report-xml.md#troubleshooting).
+- A **non-null `result.startBuildFaultMessage`** alongside `"success":true` means the layout itself
+  loaded but document generation failed (e.g. the SQL errored at execution time, not at parse time)
+  — that message is specific and worth reading directly.
+
+Only report the report as verified once this call has actually been made against the real deployed
+id and returned `"success":true`. A `--dry-run` deploy, or a bare `Get` that only confirms the row
+exists, is not a substitute — never claim success without this step.
 
 ## Module route note
 
 The front-end calls reports under `/api/services/DevExpressReporting/...` — the default this skill
 uses. The backend also registers controllers under the module area `devexpressreportingCommon`; if
 `DevExpressReporting` 404s, retry with that segment. `deploy-report.js` accepts
-`--module-route <segment>` to override. Confirm the live path at `{baseUrl}/swagger` when unsure.
+`--module-route <segment>` to override. `{baseUrl}/swagger/index.html` can help you browse routes by
+eye, but don't rely on `{baseUrl}/swagger/v1/swagger.json` to inspect them programmatically — it
+500s on at least one real deployment (unrelated ABP issue) even though the routes underneath work
+fine. If in doubt, just try both segments against a real call.

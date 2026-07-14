@@ -143,7 +143,12 @@ item values via the `ReferenceListItem` query above so the SQL predicate uses re
 GET {baseUrl}/api/services/app/EntityConfig/GetMainDataList?maxResultCount=10000&sorting=className
 ```
 Match the class by `className`; use its type name/alias for `entityTypeShortAlias`, then pick a
-display property from `GET {baseUrl}/api/ModelConfigurations/{classId}` (e.g. a name/title field).
+*candidate* display property from `GET {baseUrl}/api/ModelConfigurations/{classId}` (e.g. a
+name/title field) — but don't stop there. The C# property name shown there is frequently **not**
+the actual JSON field (the API is camelCase, and Shesha's synthetic `_displayName` field often isn't
+what `ModelConfigurations` suggests at all). Confirm the property really resolves before using it —
+see [filter-form.md](filter-form.md#verify-entitydisplayproperty-before-trusting-it) for the exact
+`Entities/GetAll` check and the real incident that made this step mandatory, not optional.
 
 If a value can't be resolved on the target site, stop and ask — never guess names or item values.
 

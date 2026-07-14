@@ -70,7 +70,10 @@ Every generated component also gets the common base props: `id` (GUID), `type`, 
 | `entityReference` | `entityType`, `displayProperty`, `entityReferenceType:"NavigateLink"`, `formIdentifier` | 6 |
 
 For entities the skill fills `entityType`/`entityTypeShortAlias` from `param.entityTypeShortAlias`
-and the display column from `param.entityDisplayProperty`.
+and the display column from `param.entityDisplayProperty` (defaults to `_displayName` if you don't
+set it — but always verify that field actually resolves for the specific entity before relying on
+either the default or an explicit value; see
+[filter-form.md](filter-form.md#verify-entitydisplayproperty-before-trusting-it)).
 
 ## Specialised inputs
 
@@ -97,6 +100,9 @@ if you assemble markup by hand: `container`, `columns`, `collapsiblePanel`, `tab
 - **Explicit component:** `{ "name":"notes", "component":"textArea", "componentProps":{ "autoSize":true } }`.
 - **componentProps** is merged last, so it wins over the defaults — use it for anything not covered.
 - **Multi-value** (`multiValue:true`): the visible control is `"<name>List"` and an `onChangeCustom`
-  writes the comma-joined SQL param `"<name>"` (`form.setFieldValue('<name>', value?.join(','))`),
-  matching the `string_split(@name,',')` SQL predicate. Provide your own `onChangeCustom` in
-  `componentProps` to override.
+  writes the comma-joined SQL param `"<name>"`, matching the `string_split(@name,',')` SQL
+  predicate. For scalar filters (dataType 8/9) that's `form.setFieldValue('<name>', value?.join(','))`;
+  for **entity-reference filters (dataType 10)** the picker can hand back `{id,...}` objects even in
+  multi-select mode, so `buildComponent` instead emits an id-unwrapping version — see
+  [filter-form.md](filter-form.md#verify-entitydisplayproperty-before-trusting-it). Provide your own
+  `onChangeCustom` in `componentProps` to override either default.

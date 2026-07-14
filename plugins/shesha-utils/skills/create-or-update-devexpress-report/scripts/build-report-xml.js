@@ -185,22 +185,56 @@ function resolveTheme(spec) {
 // Content width = page width minus the 50+50 margins.
 function contentWidth(spec) { return (spec.pageWidth || (spec.landscape ? 1100 : 850)) - 100; }
 
-// Shared, styled ReportHeader controls: optional logo, title, description, generated-on, accent
-// line. `extraItems` (optional) is a list of (idx) => xmlString builders — e.g. charts appended
-// below the accent line by tabularBands — numbered continuing the same Item-tag sequence, since
-// DevExpress's serializer requires each <Controls> container's ItemN tags to be 1..N sequential.
+// Pure geometry for the top of ReportHeader (title, optional description subtitle, optional
+// "applied filters" summary line, generated-on timestamp, accent line) — no ref allocation, so
+// callers that stack extra content below it (tabularBands' charts) can compute the Y offset
+// *before* headerControls runs, without allocating throwaway XML refs. Keep this arithmetic in
+// sync with headerControls() below — same layout, that version also emits the XML.
+function headerBaseHeight(spec) {
+  let y = 4 + 32; // title
+  if (spec.description) y += 20;              // subtitle
+  if (spec.filtersSummaryExpression) y += 18;  // applied-filters line
+  y = Math.max(y, 58) + 20;                    // generated-on
+  return y + 12;                               // accent line + margin
+}
+
+// Shared, styled ReportHeader controls: optional logo, title, description, an optional "applied
+// filters" summary line, generated-on, accent line. `extraItems` (optional) is a list of
+// (idx) => xmlString builders — e.g. charts appended below the accent line by tabularBands —
+// numbered continuing the same Item-tag sequence, since DevExpress's serializer requires each
+// <Controls> container's ItemN tags to be 1..N sequential.
+// spec.filtersSummaryExpression, if set, is a DevExpress report expression (typically
+// Max([OtherQuery.Field]) against a second query in spec.queries[] that pre-formats the currently
+// applied filters server-side) rendered as its own line below the title/description — see
+// "Applied filters summary" in report-xml.md.
 function headerControls(theme, spec, pageW, extraItems) {
   const items = [];
   let n = 0; const next = () => ++n;
   if (theme.logoBase64) {
     items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPictureBox" Name="logo" ImageSource="img,${theme.logoBase64}" Sizing="ZoomImage" SizeF="150,45" LocationFloat="${pageW - 150},0" />`);
   }
-  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="${pageW - 160},30" LocationFloat="0,4" Font="${theme.font}, ${theme.titleSize}pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
+  let y = 4;
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblTitle" Text="${xmlEscape(spec.title || spec.reportName)}" SizeF="${pageW - 160},30" LocationFloat="0,${y}" Font="${theme.font}, ${theme.titleSize}pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
+  y += 32;
   if (spec.description) {
-    items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblSubtitle" Text="${xmlEscape(spec.description)}" SizeF="${pageW - 160},18" LocationFloat="0,36" Font="${theme.font}, 9pt" ForeColor="${theme.text}" Padding="2,2,0,0,100" />`);
+    items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLabel" Name="lblSubtitle" Text="${xmlEscape(spec.description)}" SizeF="${pageW - 160},18" LocationFloat="0,${y}" Font="${theme.font}, 9pt" ForeColor="${theme.text}" Padding="2,2,0,0,100" />`);
+    y += 20;
   }
-  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPageInfo" Name="genDate" PageInfo="DateTime" TextFormatString="Generated: {0:dd MMM yyyy HH:mm}" TextAlignment="MiddleRight" SizeF="240,16" LocationFloat="${pageW - 240},58" Font="${theme.font}, 8pt" ForeColor="${theme.text}" />`);
-  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLine" Name="accentLine" LineWidth="2" SizeF="${pageW},4" LocationFloat="0,78" ForeColor="${theme.accent}" />`);
+  if (spec.filtersSummaryExpression) {
+    const idx = next();
+    const itemRef = nextRef();
+    const bindRef = nextRef();
+    items.push(`        <Item${idx} Ref="${itemRef}" ControlType="XRLabel" Name="lblFilters" SizeF="${pageW - 160},16" LocationFloat="0,${y}" Font="${theme.font}, 8.5pt, style=Italic" ForeColor="${theme.text}" Padding="2,2,0,0,100">\n` +
+      `          <ExpressionBindings>\n` +
+      `            <Item1 Ref="${bindRef}" EventName="BeforePrint" PropertyName="Text" Expression="${xmlEscape(spec.filtersSummaryExpression)}" />\n` +
+      `          </ExpressionBindings>\n` +
+      `        </Item${idx}>`);
+    y += 18;
+  }
+  y = Math.max(y, 58);
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRPageInfo" Name="genDate" PageInfo="DateTime" TextFormatString="Generated: {0:dd MMM yyyy HH:mm}" TextAlignment="MiddleRight" SizeF="240,16" LocationFloat="${pageW - 240},${y}" Font="${theme.font}, 8pt" ForeColor="${theme.text}" />`);
+  y += 20;
+  items.push(`        <Item${next()} Ref="${nextRef()}" ControlType="XRLine" Name="accentLine" LineWidth="2" SizeF="${pageW},4" LocationFloat="0,${y}" ForeColor="${theme.accent}" />`);
   (extraItems || []).forEach((build) => items.push(build(next())));
   return items.join('\n');
 }
@@ -247,9 +281,10 @@ function tabularBands(spec) {
   const charts = spec.charts || [];
   const primaryQuery = queriesOf(spec)[0].name;
   const chartBuilders = [];
-  let chartsEndY = 90;
+  const baseHeaderHeight = headerBaseHeight(spec);
+  let chartsEndY = baseHeaderHeight;
   if (charts.length) {
-    let y = 96;
+    let y = baseHeaderHeight + 6;
     charts.forEach((ch, ci) => {
       const chartSpec = { ...ch, dataMember: ch.dataMember || primaryQuery };
       if (chartSpec.title) {
@@ -266,7 +301,7 @@ function tabularBands(spec) {
   }
 
   const header = headerControls(theme, spec, totalW, chartBuilders);
-  const headerHeight = charts.length ? chartsEndY : 90;
+  const headerHeight = charts.length ? chartsEndY : baseHeaderHeight;
   const phTableRef = nextRef(), phRowRef = nextRef();
   const dTableRef = nextRef(), dRowRef = nextRef();
 
@@ -331,7 +366,7 @@ function pivotBands(spec) {
   const pivotRef = nextRef();
   return `  <Bands>
     <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="${headerBaseHeight(spec)}">
       <Controls>
 ${header}
       </Controls>
@@ -447,7 +482,7 @@ function dashboardBands(spec) {
   const detailH = y + 6;
   return `  <Bands>
     <Item1 Ref="${nextRef()}" ControlType="TopMarginBand" Name="TopMargin" HeightF="45" />
-    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="90">
+    <Item2 Ref="${nextRef()}" ControlType="ReportHeaderBand" Name="ReportHeader" HeightF="${headerBaseHeight(spec)}">
       <Controls>
 ${header}
       </Controls>
@@ -538,10 +573,15 @@ const COMPONENT_DEFAULTS = {
   radio: (p) => ({
     dataSourceType: 'referenceList', direction: 'horizontal', referenceListId: refListId(p), version: 6,
   }),
+  // entityDisplayProperty default is '_displayName' — Shesha's synthetic display field, confirmed
+  // live against Entities/GetAll. The C# property name (e.g. "Name") is NOT a safe default: the
+  // JSON API is camelCase and doesn't expose it under that key, so the picker silently falls back
+  // to showing the raw id. ALWAYS verify the actual field for a specific entity before trusting
+  // even this default — see "Verify entityDisplayProperty" in filter-form.md.
   autocomplete: (p) => ({
     dataSourceType: 'entitiesList', useRawValues: true, entityType: p.entityTypeShortAlias || null,
     entityTypeShortAlias: p.entityTypeShortAlias || null,
-    entityDisplayProperty: p.entityDisplayProperty || 'displayName',
+    entityDisplayProperty: p.entityDisplayProperty || '_displayName',
     mode: p.multiValue ? 'multiple' : 'single', valueFormat: 'entityReference', version: 8,
   }),
   entityPicker: (p) => ({
@@ -549,7 +589,7 @@ const COMPONENT_DEFAULTS = {
     valueFormat: 'entityReference', version: 10,
   }),
   entityReference: (p) => ({
-    entityType: p.entityTypeShortAlias || null, displayProperty: p.entityDisplayProperty || 'displayName',
+    entityType: p.entityTypeShortAlias || null, displayProperty: p.entityDisplayProperty || '_displayName',
     entityReferenceType: 'NavigateLink', version: 6,
   }),
   address: () => ({ version: 4 }),
@@ -596,7 +636,14 @@ function buildComponent(param) {
   const defs = (COMPONENT_DEFAULTS[type] || (() => ({})))(param);
   const comp = { ...base, ...defs, ...(param.componentProps || {}) };
   if (multi && !comp.onChangeCustom) {
-    comp.onChangeCustom = `form.setFieldValue('${sqlName}', value?.join(','))`;
+    // Entity-reference pickers (autocomplete/entityPicker, dataType 10) can hand back
+    // {id,...} objects per selection even with useRawValues:true in multi-select mode — confirmed
+    // live: a plain `value.join(',')` silently produced "[object Object],[object Object]" as the
+    // SQL param, so the filter appeared to work (no error) but matched nothing / matched wrong
+    // rows. Extract `.id` defensively so this can't happen regardless of the value shape.
+    comp.onChangeCustom = dt === 10
+      ? `form.setFieldValue('${sqlName}', (value || []).map(v => v && typeof v === 'object' ? v.id : v).join(','))`
+      : `form.setFieldValue('${sqlName}', value?.join(','))`;
   }
   return comp;
 }

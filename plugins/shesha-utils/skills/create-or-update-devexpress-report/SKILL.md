@@ -40,6 +40,8 @@ Also gather (ask only if not inferable):
   resolves its connection server-side via the named `Default` connection.)
 - **Report requirement** — the natural-language description of what the report should show and
   which filters the end user needs.
+- **`dxversions`** — only needed for Step 6's render check; ask for it then (from the site's own
+  viewer request in browser devtools) if the user hasn't already supplied it. Not required up front.
 
 `Node.js` must be available (`node --version`) — the bundled scripts run under it. No npm install is
 required; the scripts use only Node's built-in `https`/`http` and `crypto`.
@@ -150,15 +152,25 @@ capture the report `id`.
 
 ### Step 6 — Verify
 
-Confirm the report loads:
-- Fetch it back: `GET {baseUrl}/api/services/DevExpressReporting/ReportingReport/Get?id=<id>`.
-- Open the report viewer for that id and confirm it renders and the filter form appears.
-- If the viewer errors on the layout, the XML failed to load — see
-  [reference/report-xml.md](reference/report-xml.md#troubleshooting). As a last-resort repair, open
-  the report once in the DevExpress designer (it re-serializes the layout), then re-run parameters.
+Confirm the report actually loads — this is scriptable, not just a "open it in a browser and look"
+step:
+1. Fetch it back: `GET {baseUrl}/api/services/DevExpressReporting/ReportingReport/Get?id=<id>`
+   (cheap sanity check the row saved — not proof the XML loads).
+2. **Render it for real** via the viewer's own open-document endpoint —
+   `POST {baseUrl}/DXXRDV` with `actionKey=openReport&arg=<id>&dxversions=<json>` — and check
+   `"success":true` in the JSON body (the HTTP status is 200 either way). Full request/response
+   shapes, and how to read failures, are in
+   [reference/api-access.md](reference/api-access.md#verify). This is the authoritative check —
+   prefer it over trying to discover endpoints through swagger, which 500s on `swagger.json` on at
+   least one real deployment.
+3. If it fails, don't guess — see
+   [reference/report-xml.md](reference/report-xml.md#troubleshooting), which also covers filter
+   pickers that show raw ids instead of names. As a last-resort repair, open the report once in the
+   DevExpress designer (it re-serializes the layout), then re-run parameters.
 
-Report back: the report id, its menu location, the filter form id, and the verification result.
-Never claim success without the Step-6 fetch/render check.
+Report back: the report id, its menu location, the filter form id, and the verification result
+(quote the actual `success`/`error` from the DXXRDV response, not just "should work"). Never claim
+success without step 2 — a `--dry-run` or a bare `Get` is not enough.
 
 ## Report-type support
 

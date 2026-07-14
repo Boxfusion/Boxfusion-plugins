@@ -80,17 +80,59 @@ are **not** hardcoded — resolve them from the target site (see
 `referenceListId.name` is the **full** reflist name (`<module>.<shortName>`); `module` is the
 namespace. Single (8) → `mode:"single"` and no `onChangeCustom`.
 
-**EntityReference (10)** — `type:"autocomplete"`, `version:6` (NOT `entityReference`).
-`entityTypeShortAlias`/`entityDisplayProperty` are resolved from the site, not hardcoded:
+**EntityReference (10)** — `type:"autocomplete"`, `version:8` (NOT `entityReference`, which is a
+different, read-only-link component with `version:6` — easy to confuse since they share a
+`displayProperty`-like prop name; the interactive picker used for filters is `autocomplete`).
+`entityTypeShortAlias`/`entityDisplayProperty` are resolved from the site, not hardcoded — and for
+multi-select, the bridging must defensively unwrap `{id,...}` objects, not assume plain strings:
 ```json
 { "id":"<guid>", "type":"autocomplete", "propertyName":"<paramName>List", "componentName":"<paramName>List",
   "label":"<label>", "labelAlign":"right", "parentId":"root", "hidden":false, "isDynamic":false,
-  "editMode":"editable", "validate":{}, "desktop":{},"tablet":{},"mobile":{}, "version":6,
+  "editMode":"editable", "validate":{}, "desktop":{},"tablet":{},"mobile":{}, "version":8,
   "dataSourceType":"entitiesList", "useRawValues":true,
   "entityTypeShortAlias":"<resolved entity type>",
-  "entityDisplayProperty":"<resolved display property>", "mode":"multiple",
-  "onChangeCustom":"form.setFieldValue('<paramName>', value?.join(','))" }
+  "entityDisplayProperty":"<resolved display property — default '_displayName', see below>",
+  "mode":"multiple",
+  "onChangeCustom":"form.setFieldValue('<paramName>', (value || []).map(v => v && typeof v === 'object' ? v.id : v).join(','))" }
 ```
+`build-report-xml.js` already emits this exact defensive `onChangeCustom` and `_displayName`
+default for you when you go through `buildComponent`/`--form` mode — the raw shape above is only for
+hand-assembling markup or auditing what got generated.
+
+### Verify entityDisplayProperty before trusting it
+
+**Real incident**: a Case Type filter was built with `entityDisplayProperty: "Name"` (the C# /
+`ModelConfigurations` property name) and `onChangeCustom` using a plain `value?.join(',')`. Both
+looked reasonable and matched the entity's own property list — but in the browser the picker showed
+raw GUIDs instead of case type names, **and** the multi-select's naive `.join(',')` on an array of
+`{id,...}` objects produced the literal string `"[object Object],[object Object]"` as the SQL
+parameter, so the filter silently matched nothing. Neither symptom threw an error anywhere in the
+pipeline — the report deployed cleanly and "looked" verified by every check that didn't render it.
+
+Two lessons, both now baked into the defaults above, but **always double-check them per entity**
+rather than trusting the default blindly:
+
+1. **The JSON API is camelCase; the C# property name usually isn't the field you want.**
+   `Entities/GetAll` for `Boxfusion.ServiceManagement.Domain.CaseTypes.CaseType` exposed the name
+   field as `name` (lowercase), not `Name`; and Shesha's synthetic universal display field is
+   `_displayName` (leading underscore) — the error message from an invalid property name literally
+   suggests it (`Cannot query field 'displayName' on type 'X'. Did you mean '_displayName'?`).
+   Before finalizing `entityDisplayProperty`, confirm it resolves to real text:
+   ```
+   GET {baseUrl}/api/services/app/Entities/GetAll?entityType=<full class name>&maxResultCount=3&properties=id%20_displayName
+   ```
+   If that comes back empty/null for `_displayName`, try the camelCase form of the actual property
+   name next (`name`, not `Name`) — never assume the PascalCase property name from
+   `ModelConfigurations` works as-is.
+2. **Multi-select entity pickers can hand back `{id,...}` objects even with `useRawValues:true`.**
+   Always bridge with the defensive `.map(v => v && typeof v === 'object' ? v.id : v)` form shown
+   above for `dataType 10` — never the bare `value?.join(',')` used for scalar reference-list
+   filters (dataType 8/9), which really do carry plain values and don't need unwrapping.
+
+Both classes of bug pass every check that only inspects the deployed *data* (report `Get`,
+`GetParameters`, even a successful DXXRDV render) — they only show up when a filter is actually
+exercised. If you can't drive a browser yourself, at minimum run the `Entities/GetAll` check above
+before deploying, and tell the user explicitly which entity filters need a manual click-through.
 
 ## Resolve names from the API (never hardcode)
 
@@ -105,8 +147,11 @@ uses the values you pass in `param.referenceListName`/`referenceListNamespace`/`
   **full `name`** and its **`module`**; confirm items via the `ReferenceListItem` query. Never assume
   the namespace prefix.
 - **Entity** (for an entity filter): find the class via
-  `EntityConfig/GetMainDataList` (match on `className`) → use its type name/alias and pick a display
-  property from `ModelConfigurations/{id}`.
+  `EntityConfig/GetMainDataList` (match on `className`) → use its type name/alias, and pick a
+  display property — but treat `ModelConfigurations/{id}` as a *candidate*, not the answer: verify
+  it actually resolves via `Entities/GetAll` before using it (see
+  [Verify entityDisplayProperty before trusting it](#verify-entitydisplayproperty-before-trusting-it)
+  above — this exact shortcut caused a real bug).
 
 If a name can't be resolved on the target site, stop and ask — do not guess.
 
@@ -114,7 +159,12 @@ If a name can't be resolved on the target site, stop and ask — do not guess.
 
 A multi-select yields an **array**, but the SQL `string_split(@param,',')` predicate needs a
 **comma string**. So for multi-value filters the visible control's `propertyName` is `"<name>List"`
-and its `onChangeCustom` writes the real SQL param: `form.setFieldValue('<name>', value?.join(','))`.
+and its `onChangeCustom` writes the real SQL param. For **scalar** filters (reference-list, dataType
+8/9 — the array holds plain values already): `form.setFieldValue('<name>', value?.join(','))`. For
+**entity-reference** filters (dataType 10 — the array can hold `{id,...}` objects even with
+`useRawValues:true`): unwrap each item first — see the defensive form in
+[Verify entityDisplayProperty before trusting it](#verify-entitydisplayproperty-before-trusting-it).
+`build-report-xml.js`'s `buildComponent` already picks the right one automatically by `dataType`.
 The report parameter / `internalName` / SQL token stays `<name>`; `setFieldValue` puts it in the
 submit store even without its own visible component. Single-value filters need no bridge — the
 control's `propertyName` is the param name directly.
