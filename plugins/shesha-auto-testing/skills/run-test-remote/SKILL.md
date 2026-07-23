@@ -1,6 +1,6 @@
 ---
 name: run-test-remote
-description: Dispatch a test plan to GitHub Actions instead of running it locally — the cloud-side workflow uses claude-code-action to drive the test, posts a Teams Adaptive Card on failure, and publishes an Allure report to gh-pages. Trigger phrases include "/Run-test-remote", "run test remote", "run on CI", "dispatch test on github actions", "run remote test", "trigger e2e workflow", "kick off the workflow". If `.github/workflows/e2e-test.yml` is missing the skill scaffolds it from a template and walks the user through wiring the three required secrets (`ANTHROPIC_API_KEY`, `APP_PASSWORD`, `TEAMS_WEBHOOK_URL`). If present, the skill picks plan(s) via the same disambiguation UX as `/RunTest`, dispatches each via `gh workflow run e2e-test.yml -f test_plan=<path>`, and prints the resulting run URL. Optional `--watch` flag blocks until the run completes.
+description: Dispatch a test plan to GitHub Actions instead of running it locally — the cloud-side workflow uses claude-code-action to drive the test, posts a Teams Adaptive Card on failure, and publishes an Allure report to gh-pages. Trigger phrases include "/Run-test-remote", "run test remote", "run on CI", "dispatch test on github actions", "run remote test", "trigger e2e workflow", "kick off the workflow". If `.github/workflows/e2e-test.yml` is missing the skill scaffolds it from a template and walks the user through wiring the required secrets (`ANTHROPIC_API_KEY`, a `<ROLE>_PASSWORD` per login role such as `ADMIN_PASSWORD`, optional `TEAMS_WEBHOOK_URL`) plus the non-secret repo variables (`TEST_ENV`, `<ENV>_APP_URL`, `<ROLE>_USERNAME`). If present, the skill picks plan(s) via the same disambiguation UX as `/RunTest`, dispatches each via `gh workflow run e2e-test.yml -f test_plan=<path>`, and prints the resulting run URL. Optional `--watch` flag blocks until the run completes.
 ---
 
 # Run Test Remote
@@ -34,13 +34,21 @@ Dispatch the test plan to GitHub Actions and print the run URL. The cloud workfl
    ```bash
    gh secret list
    ```
-   Required: `ANTHROPIC_API_KEY`, `APP_PASSWORD`. Optional: `TEAMS_WEBHOOK_URL` (skip notification if absent).
+   Required secrets: `ANTHROPIC_API_KEY`, plus one **`<ROLE>_PASSWORD`** per login role the test uses — at minimum `ADMIN_PASSWORD` (the same env-var names the specs read from `process.env`; see `CLAUDE.md` → Credentials). Optional secret: `TEAMS_WEBHOOK_URL` (skip notification if absent).
 
-   If a *required* secret is missing, stop with the exact `gh secret set` commands the user needs:
+   Non-secret config the workflow also needs (set as **repo Variables** — `gh variable set` — or hardcode in the workflow's `env:`): `TEST_ENV`, the active `<ENV>_APP_URL` (e.g. `QA_APP_URL`), and one `<ROLE>_USERNAME` per role. These aren't secrets, so keep them out of `gh secret`.
+
+   If a *required* secret is missing, stop with the exact commands the user needs:
    > Missing secret(s): `<list>`. Set them and re-run:
    > ```
    > gh secret set ANTHROPIC_API_KEY
-   > gh secret set APP_PASSWORD
+   > gh secret set ADMIN_PASSWORD          # + one <ROLE>_PASSWORD per additional role
+   > ```
+   > Non-secret config (repo variables):
+   > ```
+   > gh variable set TEST_ENV --body qa
+   > gh variable set QA_APP_URL --body https://qa.example.com
+   > gh variable set ADMIN_USERNAME --body admin
    > ```
    > `TEAMS_WEBHOOK_URL` is optional — set it if you want Teams notifications on failure:
    > ```
@@ -59,10 +67,15 @@ After writing the file:
 
 > Scaffolded `.github/workflows/e2e-test.yml`. Required secrets:
 > - `ANTHROPIC_API_KEY` — `gh secret set ANTHROPIC_API_KEY`
-> - `APP_PASSWORD` — `gh secret set APP_PASSWORD`
+> - `ADMIN_PASSWORD` (and one `<ROLE>_PASSWORD` per additional login role) — `gh secret set ADMIN_PASSWORD`
 > - `TEAMS_WEBHOOK_URL` (optional, for failure notifications) — `gh secret set TEAMS_WEBHOOK_URL`
 >
-> Configure them, commit + push the workflow file, then re-run `/Run-test-remote`.
+> Non-secret config as repo variables:
+> - `gh variable set TEST_ENV --body qa`
+> - `gh variable set QA_APP_URL --body <url>` (the active `<ENV>_APP_URL`)
+> - `gh variable set ADMIN_USERNAME --body admin` (one `<ROLE>_USERNAME` per role)
+>
+> The workflow must pass these through as `env:` to the test step so the specs read them from `process.env`. Configure them, commit + push the workflow file, then re-run `/Run-test-remote`.
 
 Stop here. The user must commit and push the workflow before GitHub Actions can see it.
 

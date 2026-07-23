@@ -74,7 +74,7 @@ ADO action text is free-form English written by a tester. Apply these heuristics
 |---|---|---|
 | "navigate to", "go to", "open the … page", a URL | `NAVIGATE` | `NAVIGATE {APP_URL}/login` |
 | "click", "press", "tap", "select the … button/link/tab", "choose … button" | `CLICK` | `CLICK Save button` |
-| "enter", "type", "input", "fill", "provide … in/into …", "set … to" | `TYPE` | ``TYPE Username field with `admin` `` |
+| "enter", "type", "input", "fill", "provide … in/into …", "set … to" | `TYPE` | ``TYPE Search field with `service request` `` (for a credential field, write it abstractly — ``TYPE Username field with the admin username`` — never the literal value) |
 | "select … from", "choose … from the dropdown/list", "pick" | `SELECT` | `SELECT Country — choose South Africa` |
 | "wait", "until", "loading", "spinner disappears" | `WAIT` | `WAIT for the grid to load` |
 | "log in", "sign in", "authenticate" with credentials | (auto login TC) | handled by the prepended login `TC-01` |
@@ -116,7 +116,8 @@ Do the decode/strip with normal text handling — no external library needed.
 ## 6. Parameterized data & shared steps
 
 **Parameterized steps.** Data-driven test cases embed `@paramName` tokens in the action/expected text, with values in `Microsoft.VSTS.TCM.Parameters` (the parameter names) and `Microsoft.VSTS.TCM.LocalDataSource` (an XML/CSV table of rows). If present:
-- Use the **first data row** to substitute each `@paramName` with its concrete value (e.g. `@username` → `admin`). One concrete plan is enough for an e2e smoke; note in the finishing reply that only row 1 was used.
+- Use the **first data row** to substitute each `@paramName` with its concrete value (e.g. `@country` → `South Africa`). One concrete plan is enough for an e2e smoke; note in the finishing reply that only row 1 was used.
+- **Exception — credential params.** If a `@paramName` resolves to a login username or password (`@username`, `@password`, `@pwd`, …), do **not** inline the value. Keep the plan step abstract (*the admin username* / *the admin password*) and let the spec read it from `process.env` — the concrete value stays in `.env`, never in a committed file.
 - If a token can't be resolved, keep the literal `@paramName` and add a `// TODO[param]: <token>` marker so AI-repair / the author can fill it.
 
 **Shared steps.** A reused step block appears as a `<compref ref="<sharedStepWorkItemId>">` element instead of a `<step>`. To expand it, fetch that work item (`mcp__ado__wit_get_work_item { id: <ref>, fields: ["Microsoft.VSTS.TCM.Steps"] }`) and inline its steps at that position. If expansion fails, emit a `// TODO[shared-step]: ADO #<ref>` marker and continue.

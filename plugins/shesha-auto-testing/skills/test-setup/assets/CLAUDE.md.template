@@ -31,8 +31,10 @@ The flow is a linear, named chain — each step is one skill, the user invokes t
 `/Run-test-remote` dispatches the test plan to GitHub Actions instead of running it locally. The skill detects whether the workflow file exists; if it's missing it scaffolds [.github/workflows/e2e-test.yml](.github/workflows/e2e-test.yml) and walks you through wiring up the three required secrets:
 
 - `ANTHROPIC_API_KEY` — for the cloud-side Claude Code action that drives the test
-- `APP_PASSWORD` — the admin password used by the test
+- `ADMIN_PASSWORD` (and one `<ROLE>_PASSWORD` per additional login role) — the login password(s), as **secrets**; the specs read them from `process.env`
 - `TEAMS_WEBHOOK_URL` — optional; if set, the workflow POSTs an Adaptive Card to your Teams channel on failure with plan name, branch, run URL, Allure URL, and the failing TC summary
+
+Non-secret config (`TEST_ENV`, the active `<ENV>_APP_URL`, and each `<ROLE>_USERNAME`) goes in **repo variables** (`gh variable set`) or the workflow's `env:`, not `gh secret`. The workflow must expose all of these as environment variables to the test step.
 
 Nightly runs (the `schedule:` trigger) skip themselves if there were no commits in the last 24h. Manual dispatch always runs.
 
@@ -103,13 +105,28 @@ JUnit XML is the canonical machine-readable result format. To wire CI: point the
 | Key | Value |
 |-----|-------|
 | App | __APP_NAME__ |
-| URL | __APP_URL__ |
-| Environment | __ENV__ |
+
+## Environments
+
+The suite can target several sites. **URLs are not secret, but they are still read from env vars** (in the gitignored `.env`) so you can switch sites without editing committed files. `playwright.config.ts` resolves `baseURL` from `APP_URL`, else from the URL of the active `TEST_ENV` (e.g. `TEST_ENV=qa` → `QA_APP_URL`). Specs use **relative** paths, so switching `TEST_ENV` re-points every test.
+
+| Environment | `TEST_ENV` value | URL env var |
+|-------------|------------------|-------------|
+| __ENV__ | `__TEST_ENV__` | `__APP_URL_VAR__` |
+
+_Add a row per site (QA, Test, Staging …). Set the active site with `TEST_ENV` in `.env`._
 
 ## Credentials
-| Role | Username | Password |
-|------|----------|----------|
-| Admin | __ADMIN_USERNAME__ | __ADMIN_PASSWORD__ |
+
+**Credential values are never stored in this file or in any committed file.** Only the *registry* of which roles exist lives here; the real usernames and passwords live in a gitignored `.env` at the repo root (see `.env.example` for the template). Per role, `.env` defines `<ROLE>_USERNAME` and `<ROLE>_PASSWORD`; the spec's `loginAs(page, '<ROLE>')` helper reads them at run time. In CI, set the same variables as secrets/variables instead of shipping a `.env`.
+
+| Role | Username env var | Password env var |
+|------|------------------|------------------|
+| Admin | `ADMIN_USERNAME` | `ADMIN_PASSWORD` |
+
+_Add a row per role (Manager, standard User …) as tests need them. `/CreateTest` auto-registers a new role here and in `.env.example`, then asks you to fill the value into `.env`._
+
+Local setup: copy `.env.example` → `.env` and fill in the real values. `/test-setup` does this for you and validates that they are non-placeholder before `/CreateTest` will run.
 
 ## Core Constraints
 - **Plans are markdown.** `.md` files in [test-plans/](test-plans/) are the canonical specification. Reports are markdown in [test-reports/](test-reports/).
