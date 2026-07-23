@@ -28,9 +28,11 @@ Check each path relative to the repo root. Build the **missing** list — don't 
 
 | Path | Asset (under `.claude/skills/test-setup/assets/`) | Placeholders |
 |---|---|---|
-| `CLAUDE.md` | `CLAUDE.md.template` | `__APP_NAME__`, `__APP_URL__`, `__ENV__`, `__ADMIN_USERNAME__`, `__ADMIN_PASSWORD__`, `__PROJECT_NAME__` |
+| `CLAUDE.md` | `CLAUDE.md.template` | `__APP_NAME__`, `__ENV__`, `__TEST_ENV__`, `__APP_URL_VAR__`, `__PROJECT_NAME__` |
 | `package.json` | `package.json.template` | `__PROJECT_NAME__` |
-| `playwright.config.ts` | `playwright.config.ts` | `__APP_URL__` |
+| `playwright.config.ts` | `playwright.config.ts` | — (reads everything from `.env`) |
+| `.env.example` | `env.example` | — (committed, always blank values) |
+| `.env` *(gitignored — holds the real URLs + credentials)* | `env.example` (as the shape) | `TEST_ENV`, `<ENV>_APP_URL`, `<ROLE>_USERNAME`, `<ROLE>_PASSWORD` values |
 | `tsconfig.json` | `tsconfig.json` | — |
 | `.gitignore` (must contain test entries) | `gitignore.snippet` | — |
 | `scripts/run-plan.js` | `scripts/run-plan.js` | — |
@@ -48,7 +50,7 @@ Print a one-line audit so the user sees what's about to happen:
 
 ### A1. Collect values *(one or two prompts max — keep it quick)*
 
-If **every** placeholder-bearing file is already present (CLAUDE.md + package.json + playwright.config.ts + build-dashboard.js + generate-allure-results.js + sync-to-hub.js), skip this step — there's nothing to substitute.
+If **every** placeholder-bearing file is already present (CLAUDE.md + package.json + build-dashboard.js + generate-allure-results.js + sync-to-hub.js) **and** `.env` exists, skip this step — there's nothing to substitute.
 
 Otherwise:
 
@@ -56,19 +58,22 @@ Otherwise:
 
 1. **Project slug** (header `"Project slug"`) — kebab-case used in package.json and the hub project folder. Derive 2–3 sensible defaults from the repo folder name (e.g. cwd `c:\Projects\Acme-Portal` → `acme-portal`, `acme`, `acmeportal`).
 2. **App name** (header `"App name"`) — human-readable. Suggest title-cased slug + " Admin Portal", " Web App", or just title-cased slug.
-3. **App URL** (header `"App URL"`) — provide one placeholder option; user picks "Other" to type it.
-4. **Environment** (header `"Environment"`) — options: `QA`, `Dev`, `Staging`, `Production`.
+3. **Environment** (header `"Environment"`) — the first site you'll test against. Options: `QA`, `Dev`, `Staging`, `Production`. From the choice, derive:
+   - `__ENV__` = the human name (e.g. `QA`),
+   - `__TEST_ENV__` = its lowercase slug (e.g. `qa`),
+   - `__APP_URL_VAR__` = `<UPPER>_APP_URL` (e.g. `QA_APP_URL`).
+4. **App URL** (header `"App URL"`) — the URL for that environment; provide one placeholder option, user picks "Other" to type it. This value goes into `.env` as `<APP_URL_VAR>=<url>` (not into CLAUDE.md). Additional sites can be added later by dropping more `<ENV>_APP_URL` rows into `.env`.
 
-**Prompt 2** — second `AskUserQuestion` call for admin credentials. These are separate so the user explicitly opts into providing them:
+**Prompt 2** — second `AskUserQuestion` call for the first login role's credentials (default role **Admin**). Separate so the user explicitly opts into providing them. **The values are written only to `.env` (gitignored) — never to `CLAUDE.md`, `.env.example`, or any committed file.**
 
-1. **Admin username** (header `"Admin username"`) — defaults: `admin`, the slug, "Other".
-2. **Admin password** (header `"Admin password"`) — options: `"Type a password (Other)"`, `"Skip — I'll fill it in CLAUDE.md myself"` *(writes `<TODO: fill in>`; `/CreateTest` will refuse to run until it's set)*, `"Use placeholder (CHANGE-ME)"` *(writes `CHANGE-ME`, warned in the summary)*.
+1. **Admin username** (header `"Admin username"`) — defaults: `admin`, the slug, "Other". Stored as `ADMIN_USERNAME` in `.env`.
+2. **Admin password** (header `"Admin password"`) — options: `"Type a password (Other)"`, `"Skip — I'll fill it in .env myself"` *(leaves `ADMIN_PASSWORD=` empty in `.env`; `/CreateTest` will refuse to run until it's set)*, `"Use placeholder (CHANGE-ME)"` *(writes `ADMIN_PASSWORD=CHANGE-ME`, warned in the summary)*. Stored as `ADMIN_PASSWORD` in `.env`.
 
-**Never** invent or echo back real credential values. Capture-only.
+Additional roles (Manager, standard User …) aren't prompted here — `/CreateTest` registers them on demand. **Never** invent or echo back real credential values. Capture-only. The captured values go into `.env`; `.env.example` always ships with blank values.
 
 If `CLAUDE.md` is **present** and would otherwise need rescaffolding, ask once:
 
-> `CLAUDE.md` already exists. Overwrite it with the templated version? This replaces your current `## Application Under Test` and `## Credentials` sections.
+> `CLAUDE.md` already exists. Overwrite it with the templated version? This replaces your current `## Application Under Test`, `## Environments`, and `## Credentials` sections.
 
 Default **No**. If declined, leave CLAUDE.md alone and print the snippet in A4 so the user can paste it manually.
 
@@ -82,35 +87,54 @@ For every file in **Missing**, in parallel:
 
 For directories (`test-plans/`, `test-reports/`): create them with a `.gitkeep` so they survive a fresh git clone.
 
-For `.gitignore`: if the file exists and lacks the test entries (look for `node_modules/` + `allure-results/` + `playwright-report/`), append `gitignore.snippet`. If `.gitignore` doesn't exist, write the snippet as the whole file.
+For `.env.example`: read the `env.example` asset and write it verbatim to `.env.example` (blank values — this file **is** committed).
+
+For `.env` *(the real URLs + credentials — gitignored, never committed)*:
+- Write, using the values captured in A1:
+  ```
+  TEST_ENV=<__TEST_ENV__>
+  <__APP_URL_VAR__>=<app url>
+  ADMIN_USERNAME=<username>
+  ADMIN_PASSWORD=<password>
+  ```
+  (password may be empty or `CHANGE-ME` per the user's choice).
+- **Never overwrite an existing `.env`.** If one is already present, leave it untouched and note it in the finishing reply — the user's real secrets stay put.
+- Confirm `.env` is covered by `.gitignore` before writing (the snippet ignores it). If for any reason it isn't, add it first, then write `.env`.
+
+For `.gitignore`: if the file exists and lacks the test entries (look for `node_modules/` + `allure-results/` + `playwright-report/` + `.env`), append `gitignore.snippet`. If `.gitignore` doesn't exist, write the snippet as the whole file. Make sure `.env` is ignored and `.env.example` is **not**.
 
 ### A3. Verify substitution
 
 ```
-Grep "__[A-Z_]+__" across CLAUDE.md, package.json, playwright.config.ts, scripts/
+Grep "__[A-Z_]+__" across CLAUDE.md, package.json, scripts/
 ```
 
-Any hit means a placeholder leaked. Stop and tell the user which file + which placeholder; do not proceed to Phase B.
+Any hit means a placeholder leaked. Stop and tell the user which file + which placeholder; do not proceed to Phase B. (`playwright.config.ts` no longer carries placeholders — it reads everything from `.env`.)
+
+**Also verify no secret leaked into a committed file.** Confirm `.env.example`, `CLAUDE.md`, and any `.spec.ts` contain **no** real credential values — only env-var names and blank placeholders. The only file with real values must be `.env` (gitignored).
 
 ### A4. If CLAUDE.md was kept, print the snippet for manual paste
 
-When the user declined to overwrite an existing `CLAUDE.md`, print the substituted sections they need to add:
+When the user declined to overwrite an existing `CLAUDE.md`, print the substituted sections they need to add (**names only — no secret values**):
 
 ```
 ## Application Under Test
 | Key | Value |
 |-----|-------|
 | App | <APP_NAME> |
-| URL | <APP_URL> |
-| Environment | <ENV> |
+
+## Environments
+| Environment | `TEST_ENV` value | URL env var |
+|-------------|------------------|-------------|
+| <ENV> | `<TEST_ENV>` | `<APP_URL_VAR>` |
 
 ## Credentials
-| Role | Username | Password |
-|------|----------|----------|
-| Admin | <USERNAME> | <PASSWORD> |
+| Role | Username env var | Password env var |
+|------|------------------|------------------|
+| Admin | `ADMIN_USERNAME` | `ADMIN_PASSWORD` |
 ```
 
-Tell them: *"`/CreateTest` reads these sections at authoring time. Paste them into `CLAUDE.md` before invoking it."*
+Tell them: *"`/CreateTest` reads these sections at authoring time to know which roles/environments exist. The real URLs and credentials go in `.env` (gitignored) — paste these sections into `CLAUDE.md`, then fill `.env` from `.env.example`, before invoking it."*
 
 ---
 
@@ -217,11 +241,11 @@ If something blocking failed:
 
 If the user picked the `CHANGE-ME` password placeholder in A1:
 
-> ⚠️ The Admin password in `CLAUDE.md` is `CHANGE-ME`. Edit it before running `/CreateTest`.
+> ⚠️ `ADMIN_PASSWORD` in `.env` is `CHANGE-ME`. Set the real value before running `/CreateTest`. (`.env` is gitignored — it's never committed.)
 
 If the user picked Skip on the admin password:
 
-> ⚠️ The Admin password in `CLAUDE.md` is `<TODO: fill in>`. Replace it before running `/CreateTest`.
+> ⚠️ `ADMIN_PASSWORD` in `.env` is empty. Fill it in before running `/CreateTest`. (`.env` is gitignored — it's never committed.)
 
 If the user declined to register the Playwright MCP server in B5:
 

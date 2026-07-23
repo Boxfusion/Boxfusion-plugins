@@ -25,10 +25,10 @@ Never ask for App URL, credentials, environment, today's date, or file path — 
 
 ## Pre-flight (mandatory, in order)
 
-1. Read `CLAUDE.md` → App URL, Environment, Credentials, today's date, **and the `## Azure DevOps` section** (Organization + Project).
+1. Read `CLAUDE.md` → Environments, Roles, today's date, **and the `## Azure DevOps` section** (Organization + Project). (Credential *values* are **not** in `CLAUDE.md` — only the role/environment registry is; the real values live in the gitignored `.env`; see step 4.)
 2. Read `test-plans/RULES.md` → prefixes, snapshot rule, assertion rules, hybrid execution model (§8).
 3. Read the closest neighbour plan in the target folder. Match its style, depth, and section order exactly. If the folder is brand new, use `test-plans/cases/create-case.md` as the canonical example.
-4. **Verify Admin credentials in `CLAUDE.md`.** The recorded login helper embeds the username and password directly, so empty or placeholder values (`<TODO>`, `change-me`, empty) produce a broken spec. If the Admin row is missing or placeholder, stop and tell the user to run `/test-setup` or add an `| Admin | <username> | <password> |` row, then re-run. Do not invent credentials.
+4. **Verify the required environment + role credentials in `.env`.** Credentials must never be hardcoded — the recorded spec reads them from the environment (per-role `<ROLE>_USERNAME` / `<ROLE>_PASSWORD`, and a site URL from `APP_URL` or `<TEST_ENV>_APP_URL`), and the recording loop needs the real values to drive the login form. This is the same model as `create-test` — see `../create-test/SKILL.md` → **Environments & roles**. Determine which role(s) the imported cases log in as (default `ADMIN`) and the target environment, then confirm the matching keys exist and are non-placeholder in `.env`. If a needed role/environment is missing, **auto-register** it (add to `CLAUDE.md`'s Environments/Roles tables and to `.env.example` blank), then stop and ask the user to fill the real value into `.env` (or run `/test-setup`). `.env` is gitignored. Never write credential values into the plan, the spec, `.env.example`, or `CLAUDE.md`.
 5. **Resolve the Azure DevOps org + project.** Read the `## Azure DevOps` section of `CLAUDE.md`:
    ```
    ## Azure DevOps
@@ -65,7 +65,7 @@ If a suite has zero test cases, skip it and note it in the finishing reply. If a
 Each **suite → one `.md` plan file**; each **ADO test case → one `TC-NN` block**.
 
 1. **File + folder.** Plan title = the suite name. Match it to an existing folder under `test-plans/` (e.g. *"Login Suite"* → `auth/`); if nothing fits, propose a new kebab-case folder and confirm before creating. Save to `test-plans/<folder>/<kebab-suite-name>.md`. If the file exists, ask before overwriting.
-2. **Auto-prepend a login TC** as `TC-01` if any imported case needs auth — use the credentials from `CLAUDE.md` (same as `create-test`).
+2. **Auto-prepend a login TC** as `TC-01` if any imported case needs auth. Name the **role** it logs in as (default *Admin*; use a specific role if the ADO case's parameters/description imply one). Refer to the credentials abstractly in the plan (e.g. *the admin username* / *the manager password*) — never write literal credential values into the `.md`. The real values come from `.env` per role at recording/run time (same as `create-test`).
 3. **One TC per test case**, in suite order. The TC heading carries the ADO id for traceability:
    ```
    ### TC-02 — Create Service Request (ADO #1234)

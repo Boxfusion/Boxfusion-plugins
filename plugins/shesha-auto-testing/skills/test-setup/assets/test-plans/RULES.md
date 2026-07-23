@@ -77,9 +77,12 @@ Every plan has a paired `.spec.ts` beside it (`test-plans/<folder>/<name>.spec.t
 ### Scaffold conventions
 Specs are written by `/CreateTest` using `@playwright/test`. Selectors are **captured live** via MCP browser recording at create time — `/CreateTest` walks each plan step against the real app, snapshots the accessibility tree, and emits the resolved locator directly. Each TC becomes one `test()` block; each plan step becomes a labelled section:
 ```ts
-// STEP 3: TYPE username field with `admin`
-await page.getByRole('textbox', { name: 'Username' }).fill('admin');
+// STEP 3: TYPE the Search field with `service request`
+await page.getByRole('textbox', { name: 'Search' }).fill('service request');
 ```
+
+**Secrets never appear as literals.** The site URL comes from `baseURL` (resolved from `TEST_ENV` / `<ENV>_APP_URL` in the gitignored `.env`), and logins go through the `loginAs(page, '<ROLE>')` helper, which reads `<ROLE>_USERNAME` / `<ROLE>_PASSWORD` from `process.env`. Never write a real username, password, or token into a `.spec.ts` — it is committed and synced to the hub. Only non-secret values (search terms, form data) are emitted as literals.
+
 Markers and their meaning:
 - `// STEP N: <verbatim step text>` — maps the spec line back to plan step N. Required on every action.
 - `// TODO[selector]: <hint>` — appears **only** when MCP recording couldn't locate the element after 2 retries; AI-repair resolves it on first run.

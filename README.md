@@ -25,7 +25,7 @@ The easiest way to install Boxfusion Plugins is through the Claude plugin market
 1. **Add the plugin to the marketplace**
 
    ```bash
-   /plugin marketplace add ./
+   
    ```
 
 2. **Open the marketplace**
