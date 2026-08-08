@@ -122,6 +122,196 @@ function Clean-VersionRange {
     }
 }
 
+function Get-BraceBody {
+    # Returns the text between the first '{' at/after $StartIndex and its matching '}'.
+    param([string]$Content, [int]$StartIndex)
+    $openIndex = $Content.IndexOf('{', $StartIndex)
+    if ($openIndex -lt 0) { return $null }
+    $depth = 0
+    for ($i = $openIndex; $i -lt $Content.Length; $i++) {
+        $ch = $Content[$i]
+        if ($ch -eq '{') { $depth++ }
+        elseif ($ch -eq '}') {
+            $depth--
+            if ($depth -eq 0) {
+                return $Content.Substring($openIndex + 1, $i - $openIndex - 1)
+            }
+        }
+    }
+    return $Content.Substring($openIndex + 1)
+}
+
+function Strip-CsComments {
+    param([string]$Content)
+    $Content = [regex]::Replace($Content, '//.*', '')
+    $Content = [regex]::Replace($Content, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    return $Content
+}
+
+function Get-EntitiesFromContent {
+    # Regex/brace-matching heuristic extraction of Shesha domain entities - not a full C# parser,
+    # but matches the conventions this codebase (and Shesha generally) actually uses.
+    param([string]$Content)
+    $Content = Strip-CsComments -Content $Content
+    $results = @()
+    $classMatches = [regex]::Matches($Content, 'public\s+class\s+(\w+)\s*:\s*(?:FullAuditedEntity|AuditedEntity|CreationAuditedEntity|Entity)\s*<')
+    foreach ($m in $classMatches) {
+        $entityName = $m.Groups[1].Value
+        $body = Get-BraceBody -Content $Content -StartIndex $m.Index
+        if (-not $body) { continue }
+        $properties = @()
+        $propMatches = [regex]::Matches($body, 'public\s+virtual\s+([\w\.<>\[\],\s]+?)\s+(\w+)\s*\{\s*get;\s*set;\s*\}')
+        foreach ($p in $propMatches) {
+            $properties += [ordered]@{ propertyName = $p.Groups[2].Value; propertyType = $p.Groups[1].Value.Trim() }
+        }
+        $results += [ordered]@{ entityName = $entityName; properties = $properties }
+    }
+    return $results
+}
+
+function Get-RouteModuleNameFromContent {
+    # Finds the moduleName: "X" passed to CreateControllersForAppServices(...) in a *Module.cs /
+    # *ApplicationModule.cs file, which determines the /api/services/{X}/... route segment.
+    param([string]$Content)
+    if ($Content -match 'CreateControllersForAppServices\(\s*[\s\S]*?moduleName:\s*"([^"]+)"') {
+        return $Matches[1]
+    }
+    return $null
+}
+
+function Get-ApisFromContent {
+    param([string]$Content, [string]$RouteModuleName)
+    $Content = Strip-CsComments -Content $Content
+    $results = @()
+    $classMatches = [regex]::Matches($Content, 'public\s+class\s+(\w*AppService)\b[^{]*')
+    foreach ($m in $classMatches) {
+        $serviceName = $m.Groups[1].Value -replace 'AppService$', ''
+        $body = Get-BraceBody -Content $Content -StartIndex $m.Index
+        if (-not $body) { continue }
+        $methodMatches = [regex]::Matches($body, '\[Http(Get|Post|Put|Delete)\]\s*(?:\[[^\]]*\]\s*)*public\s+(?:async\s+)?[\w<>\[\],\.\s]+?\s+(\w+?)(?:Async)?\s*\(')
+        foreach ($mm in $methodMatches) {
+            $results += [ordered]@{
+                name       = $mm.Groups[2].Value
+                httpMethod = $mm.Groups[1].Value.ToUpperInvariant()
+                route      = "/api/services/$RouteModuleName/$serviceName/$($mm.Groups[2].Value)"
+            }
+        }
+    }
+    return $results
+}
+
+function Get-SettingsFromContent {
+    param([string]$Content)
+    $Content = Strip-CsComments -Content $Content
+    $results = @()
+    $ifaceMatches = [regex]::Matches($Content, 'interface\s+I(\w+)\s*:\s*ISettingAccessors')
+    foreach ($m in $ifaceMatches) {
+        $body = Get-BraceBody -Content $Content -StartIndex $m.Index
+        if (-not $body) { continue }
+        $propMatches = [regex]::Matches($body, '(?:\[Display\(([^\)]*)\)\]\s*)?\[Setting\([^\)]*\)\]\s*ISettingAccessor<[^>]+>\s+(\w+)\s*\{')
+        foreach ($p in $propMatches) {
+            $displayArgs = $p.Groups[1].Value
+            $name = $p.Groups[2].Value
+            $desc = $null
+            if ($displayArgs -match 'Name\s*=\s*"([^"]*)"') { $name = $Matches[1] }
+            if ($displayArgs -match 'Description\s*=\s*"([^"]*)"') { $desc = $Matches[1] }
+            $results += [ordered]@{ name = $name; description = $desc }
+        }
+    }
+    return $results
+}
+
+function Get-EnumsFromContent {
+    # Regex/brace-matching heuristic extraction of plain C# enum declarations (including
+    # Shesha's code-based reference-list convention, where each member carries a
+    # [Display(Name = "...")] attribute) - not a full C# parser.
+    param([string]$Content)
+    $Content = Strip-CsComments -Content $Content
+    $results = @()
+    $enumMatches = [regex]::Matches($Content, 'public\s+enum\s+(\w+)\s*(?::\s*\w+\s*)?(?=\{)')
+    foreach ($m in $enumMatches) {
+        $enumName = $m.Groups[1].Value
+        $body = Get-BraceBody -Content $Content -StartIndex $m.Index
+        if (-not $body) { continue }
+        # Strip member attributes like [Display(Name = "Low")] before splitting members.
+        $cleanBody = [regex]::Replace($body, '\[[^\]]*\]', '')
+        $values = @()
+        foreach ($token in ($cleanBody -split ',')) {
+            $t = $token.Trim()
+            if (-not $t) { continue }
+            if ($t -match '^(\w+)\s*(?:=\s*(-?\d+))?$') {
+                $entry = [ordered]@{ name = $Matches[1]; value = $null }
+                if ($Matches[2]) { $entry.value = [int]$Matches[2] }
+                $values += $entry
+            }
+        }
+        $results += [ordered]@{ enumName = $enumName; values = $values }
+    }
+    return $results
+}
+
+function Get-ModuleSourceCode {
+    # Scans a module's source folders once and returns everything needed to build its
+    # entities/apis/settings/enums, plus the resolved route module name for API paths.
+    param([System.Collections.Generic.List[string]]$SourceFolders, [string]$FallbackRouteModuleName)
+
+    $entities = @()
+    $settings = @()
+    $enums = @()
+    $routeModuleName = $null
+    $allContent = @()
+
+    foreach ($folder in $SourceFolders) {
+        $files = Get-ChildItem -Path $folder -Recurse -Filter "*.cs" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
+        foreach ($file in $files) {
+            try {
+                $content = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
+            } catch {
+                continue
+            }
+            if (-not $content) { continue }
+            $allContent += [ordered]@{ Path = $file.FullName; Content = $content }
+
+            $entities += Get-EntitiesFromContent -Content $content
+            $settings += Get-SettingsFromContent -Content $content
+            $enums += Get-EnumsFromContent -Content $content
+
+            if (-not $routeModuleName) {
+                $routeModuleName = Get-RouteModuleNameFromContent -Content $content
+            }
+        }
+    }
+
+    if (-not $routeModuleName) {
+        $routeModuleName = $FallbackRouteModuleName
+    }
+
+    $apis = @()
+    foreach ($item in $allContent) {
+        $apis += Get-ApisFromContent -Content $item.Content -RouteModuleName $routeModuleName
+    }
+
+    return [ordered]@{ Entities = $entities; Apis = $apis; Settings = $settings; Enums = $enums }
+}
+
+function Get-ModuleSummary {
+    # Best-effort auto-description built from what was actually discovered in the source code -
+    # only used as a fallback when no description was found on NuGet/npm.
+    param($Entities, $Apis)
+    $parts = @()
+    if ($Entities.Count -gt 0) {
+        $entityNames = ($Entities | ForEach-Object { $_.entityName }) -join ", "
+        $parts += "Provides domain entities: $entityNames."
+    }
+    if ($Apis.Count -gt 0) {
+        $apiNames = ($Apis | ForEach-Object { $_.name } | Select-Object -Unique) -join ", "
+        $parts += "Exposes APIs: $apiNames."
+    }
+    if ($parts.Count -eq 0) { return $null }
+    return ($parts -join " ")
+}
+
 # ---------------------------------------------------------------------------
 # Step 1: Discover modules in the repo
 # ---------------------------------------------------------------------------
@@ -131,7 +321,7 @@ Write-Host "Scanning $RepoPath for modules..." -ForegroundColor Cyan
 $csprojFiles = Get-ChildItem -Path $RepoPath -Recurse -Filter "*.csproj" -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '\\(bin|obj|node_modules)\\' }
 
-$modules = @{}  # moduleName -> @{ NugetCandidateIds = [string[]]; NpmPackage = $null; SkillName=$null; SkillLocation=$null }
+$modules = @{}  # moduleName -> @{ NugetCandidateIds = [string[]]; NpmPackage = $null; SkillName=$null; SkillLocation=$null; SourceFolders=[string[]] }
 
 foreach ($csproj in $csprojFiles) {
     $rawName = [System.IO.Path]::GetFileNameWithoutExtension($csproj.Name)
@@ -154,6 +344,7 @@ foreach ($csproj in $csprojFiles) {
             NpmPackage        = $null
             SkillName         = $null
             SkillLocation     = $null
+            SourceFolders     = New-Object System.Collections.Generic.List[string]
         }
     }
     if (-not $modules[$moduleName].NugetCandidateIds.Contains($packageId)) {
@@ -161,6 +352,9 @@ foreach ($csproj in $csprojFiles) {
     }
     if (-not $modules[$moduleName].NugetCandidateIds.Contains($moduleName)) {
         $modules[$moduleName].NugetCandidateIds.Insert(0, $moduleName)
+    }
+    if (-not $modules[$moduleName].SourceFolders.Contains($csproj.DirectoryName)) {
+        $modules[$moduleName].SourceFolders.Add($csproj.DirectoryName)
     }
 }
 
@@ -195,6 +389,7 @@ foreach ($pkgFile in $packageJsonFiles) {
             NpmPackage        = $npmName
             SkillName         = $null
             SkillLocation     = $null
+            SourceFolders     = New-Object System.Collections.Generic.List[string]
         }
     }
 }
@@ -420,6 +615,21 @@ foreach ($moduleName in $modules.Keys) {
         }
     }
 
+    # --- Domain entities, APIs and settings, extracted from the module's own source code ---
+    $fallbackRouteModuleName = ($moduleName -replace '^(shesha|boxfusion)\.', '') -replace '[^a-zA-Z0-9]', ''
+    $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName
+
+    if ($sourceCode.Entities.Count -gt 0 -or $sourceCode.Apis.Count -gt 0 -or $sourceCode.Settings.Count -gt 0 -or $sourceCode.Enums.Count -gt 0) {
+        Write-Host "  Source: $($sourceCode.Entities.Count) entity(ies), $($sourceCode.Apis.Count) API(s), $($sourceCode.Settings.Count) setting(s), $($sourceCode.Enums.Count) enum(s)" -ForegroundColor Green
+    }
+
+    if (-not $description) {
+        $description = Get-ModuleSummary -Entities $sourceCode.Entities -Apis $sourceCode.Apis
+        if ($description) {
+            Write-Host "  No description found on NuGet/npm - generated one from entities/APIs" -ForegroundColor DarkGray
+        }
+    }
+
     $payloads += [ordered]@{
         moduleManifestName = $moduleName
         description        = $description
@@ -430,6 +640,10 @@ foreach ($moduleName in $modules.Keys) {
         skillName          = $info.SkillName
         skillLocation      = $info.SkillLocation
         versions           = $versionsArray
+        entities           = $sourceCode.Entities
+        apis               = $sourceCode.Apis
+        settings           = $sourceCode.Settings
+        enums              = $sourceCode.Enums
     }
 }
 
@@ -487,12 +701,12 @@ foreach ($payload in $payloads) {
         }
 
         if ($response.success) {
-            $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = $action; Versions = $payload.versions.Count; Detail = "" }
+            $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = $action; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = "" }
         } else {
-            $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Detail = $response.error.message }
+            $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = $response.error.message }
         }
     } catch {
-        $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Detail = $_.Exception.Message }
+        $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = $_.Exception.Message }
     }
 }
 
@@ -500,5 +714,5 @@ Write-Host ""
 Write-Host "=== Summary ===" -ForegroundColor Cyan
 $summary | ForEach-Object {
     $color = switch ($_.Action) { "Created" { "Green" }; "Updated" { "Yellow" }; default { "Red" } }
-    Write-Host ("{0,-10} {1,-30} {2,3} version(s)  {3}" -f $_.Action, $_.Module, $_.Versions, $_.Detail) -ForegroundColor $color
+    Write-Host ("{0,-10} {1,-30} {2,3} version(s)  {3,3} entities  {4,3} APIs  {5,3} settings  {6,3} enums  {7}" -f $_.Action, $_.Module, $_.Versions, $_.Entities, $_.Apis, $_.Settings, $_.Enums, $_.Detail) -ForegroundColor $color
 }

@@ -1,11 +1,11 @@
 ---
 name: shesha-module-registry-sync
-description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed, and upserts them into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
+description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed, extracts its domain entities/APIs/settings/enums from its own C# source and auto-summarizes a description from them, and upserts everything into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
 ---
 
 # Shesha Module Registry Sync
 
-Scan a repository for its Shesha modules and register/update them in the Module Registry, including their full NuGet/npm version and dependency history from the private Boxfusion Azure Artifacts feed.
+Scan a repository for its Shesha modules and register/update them in the Module Registry, including their full NuGet/npm version and dependency history from the private Boxfusion Azure Artifacts feed, plus the domain entities, APIs and settings discovered in each module's own C# source code.
 
 ## Background
 
@@ -33,6 +33,18 @@ Payload shape (`InsertModuleInfoInput` / `UpdateModuleInfoInput` also has `id`):
   "skillLocation": "shesha-plugins/.../skills/shesha-notifications",
   "versions": [
     { "versionNumber": "1.2.0", "dependencies": [ { "dependencyName": "Shesha.Core", "dependencyVersion": "0.45.1" } ] }
+  ],
+  "entities": [
+    { "entityName": "NotificationTemplate", "properties": [ { "propertyName": "Subject", "propertyType": "string" } ] }
+  ],
+  "apis": [
+    { "name": "Send", "route": "/api/services/Notifications/Notification/Send", "httpMethod": "POST" }
+  ],
+  "settings": [
+    { "name": "DefaultChannel", "description": "The channel used when none is specified" }
+  ],
+  "enums": [
+    { "enumName": "RefListNotificationChannel", "values": [ { "name": "Email", "value": 1 }, { "name": "Sms", "value": 2 } ] }
   ]
 }
 ```
@@ -98,8 +110,16 @@ The script will:
 5. Resolve the feed's flat-container URL from the NuGet v3 service index, then for each surviving module query it for every published version, and fetch each version's `.nuspec` for its dependencies and description. **Within each version's dependency list, the same `shesha`/`boxfusion`/`@shesha-io/` name filter applies again** — public dependencies (`Abp`, `NHibernate`, `Microsoft.*`, etc.) are dropped, only Shesha/Boxfusion-owned dependencies are kept. Dropped counts are logged per module, not per dependency (too noisy otherwise).
 6. Query the private npm registry doc for the matched package (one call returns every version + dependencies + description), applying the same dependency filter.
 7. Merge NuGet + npm versions into one `versions` array per module (one entry per distinct version number; a version present in both ecosystems gets both dependency lists appended).
-8. Authenticate against the backend (`/api/TokenAuth/Authenticate`), list existing modules via `GetAll`, then `Update` (if a module with that manifest name already exists) or `Insert` (otherwise) for each discovered module.
-9. Print a colored summary table: Created / Updated / Failed per module, with version counts.
+8. **Scan each surviving module's own source folders** (the directories containing its matched `.csproj` files - not the whole repo) for:
+   - **Domain entities**: any `public class X : FullAuditedEntity<...>` (or `AuditedEntity`/`CreationAuditedEntity`/`Entity`) and its `public virtual {Type} {Name} { get; set; }` properties.
+   - **APIs**: any `*AppService` class's `[HttpGet]`/`[HttpPost]`/`[HttpPut]`/`[HttpDelete]`-attributed public methods, with the route reconstructed as `/api/services/{RouteModuleName}/{ServiceName}/{MethodName}` — `RouteModuleName` comes from the `moduleName: "X"` argument to `CreateControllersForAppServices(...)` found in the module's own `*Module.cs`/`*ApplicationModule.cs`, falling back to the module's own short name if not found.
+   - **Settings**: any `interface IXSettings : ISettingAccessors` and its `[Setting(...)]`-decorated properties, using the `[Display(Name=..., Description=...)]` values when present.
+   - **Enums**: any `public enum X { ... }` declaration (including Shesha's code-based `RefList*` reference-list convention, e.g. `[ReferenceList(...)] public enum RefListFoo : long { ... }`), capturing each member's name and its explicit numeric value if one is given (`null` otherwise). Member-level attributes like `[Description("...")]` and XML doc comments are stripped before parsing, so they don't interfere. An enum with an empty body (a purely data-driven reference list with no compile-time members) is still recorded, with an empty `values` array.
+
+   This is regex/brace-matching heuristic extraction, not a full C# parser — it's tuned to how this codebase (and Shesha generally) actually writes these patterns, not arbitrary C#. Verified against this exact repo's own `ModuleInfo`/`ModuleInfoSearchAppService`/`IModuleRegistrySettings` (entities/APIs/settings) and against real `RefList*` enum files from `pd-chat` (enums, including a multi-value enum with `[Description]`/XML-doc-decorated members and an empty-body data-driven reference list).
+9. **If no description was found on NuGet/npm, auto-generate one** from the entities/APIs just discovered (e.g. *"Provides domain entities: X, Y. Exposes APIs: A, B."*). A description already found from the package registries always wins — this is purely a fallback for modules that have none.
+10. Authenticate against the backend (`/api/TokenAuth/Authenticate`), list existing modules via `GetAll`, then `Update` (if a module with that manifest name already exists) or `Insert` (otherwise) for each discovered module.
+11. Print a colored summary table: Created / Updated / Failed per module, with version/entity/API/setting/enum counts.
 
 ### Step 5: Present results
 
@@ -111,6 +131,8 @@ Report the summary table to the user, and flag any `Failed` rows with their erro
 - **Module ≠ csproj.** Group by conceptual module first; never create separate registry entries for `.Domain` vs `.Application` of the same module.
 - **Only Boxfusion/Shesha-owned packages get registered** — anything not matching the `shesha`/`boxfusion`/`@shesha-io/` naming filter is dropped and logged, never inserted. This applies at both the module level (whole packages) and the dependency level (a Shesha/Boxfusion module's public dependencies like `Abp`/`NHibernate`/`Microsoft.*` are recorded nowhere — only its Shesha/Boxfusion dependencies survive into `dependencies`).
 - **A module not published anywhere is still registered** — with an empty `versions` array — rather than skipped, so it's discoverable even before its first release.
+- **Entities/APIs/settings/enums are extracted per-module, not per-repo** — only the source folders belonging to that specific module's own `.csproj` files are scanned, so one module's entities never bleed into another's.
+- **Auto-generated descriptions are a last resort** — a description found on NuGet/npm always takes priority over the entities/APIs summary.
 - **Idempotent by design** — re-running against the same repo updates existing entries by exact (case-insensitive) `moduleManifestName` match rather than duplicating them. Since `GetAll` is paginated, the script pages through it (100 at a time) until a short page is returned, so this stays correct as the registry grows past one page.
 - Transient NuGet/npm failures are retried once, then that specific version is skipped with a warning — the whole run never aborts because one version's lookup failed.
 - Multi-targeted NuGet packages may list the same dependency more than once (once per target framework group) — the script doesn't de-duplicate across TFM groups; treat minor duplication in `dependencies` as a known limitation, not a bug.
