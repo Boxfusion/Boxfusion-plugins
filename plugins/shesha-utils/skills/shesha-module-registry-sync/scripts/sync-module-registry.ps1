@@ -241,7 +241,7 @@ function Get-EnumsFromContent {
             if (-not $t) { continue }
             if ($t -match '^(\w+)\s*(?:=\s*(-?\d+))?$') {
                 $entry = [ordered]@{ name = $Matches[1]; value = $null }
-                if ($Matches[2]) { $entry.value = [int]$Matches[2] }
+                if ($Matches[2]) { $entry.value = [long]$Matches[2] }
                 $values += $entry
             }
         }
