@@ -9,12 +9,14 @@
 
 .PARAMETER BackendUrl
   Base URL of the Shesha.ModuleRegistry backend to sync into. No default - the
-  caller must always supply the target environment explicitly.
+  caller must always supply the target environment explicitly. Not required
+  when -ExportOnly is set.
 
 .PARAMETER Username
 .PARAMETER Password
   Admin credentials used to authenticate against the backend. No defaults - the
-  caller must always supply real credentials for the target environment.
+  caller must always supply real credentials for the target environment. Not
+  required when -ExportOnly is set.
 
 .PARAMETER NugetFeedUrl
   NuGet v3 service index URL of the private feed.
@@ -26,35 +28,60 @@
   Personal Access Token for the Azure DevOps organization that hosts the feed.
   Falls back to the $env:SHESHA_FEED_PAT environment variable if not supplied -
   prefer that over passing it on the command line so it doesn't end up in shell
-  history. Never hardcode this value in the script.
+  history. Never hardcode this value in the script. Not required when -ExportOnly
+  is set.
+
+.PARAMETER ExportOnly
+  Scans each module's own source (entities/APIs/settings/enums) and writes it to
+  -ExportPath, then stops - no NuGet/npm lookups and no backend calls are made.
+  A regex scan can list what a module contains but can't explain what it's for,
+  so this lets a human/Claude read the actual source and author a real
+  description per module before running the real sync with -DescriptionsFile.
+
+.PARAMETER ExportPath
+  Output path for the -ExportOnly scan JSON. Required when -ExportOnly is set.
+
+.PARAMETER DescriptionsFile
+  Path to a JSON file of { "moduleManifestName": "description text", ... }. When
+  a module's name has an entry here, that authored description is sent to the
+  registry verbatim instead of the mechanical entities/APIs/settings/enums
+  listing that Get-ModuleDescription falls back to.
 #>
 param(
     [Parameter(Mandatory = $true)]
     [string]$RepoPath,
 
-    [Parameter(Mandatory = $true)]
     [string]$BackendUrl,
-
-    [Parameter(Mandatory = $true)]
     [string]$Username,
-
-    [Parameter(Mandatory = $true)]
     [string]$Password,
 
     [string]$NugetFeedUrl = "https://pkgs.dev.azure.com/boxfusion/_packaging/nuget.shesha.dev/nuget/v3/index.json",
     [string]$NpmRegistryUrl = "https://pkgs.dev.azure.com/boxfusion/_packaging/npm.shesha.dev/npm/registry/",
-    [string]$FeedPat = $env:SHESHA_FEED_PAT
+    [string]$FeedPat = $env:SHESHA_FEED_PAT,
+
+    [switch]$ExportOnly,
+    [string]$ExportPath,
+    [string]$DescriptionsFile
 )
 
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
-if (-not $FeedPat) {
-    throw "No Personal Access Token supplied. Pass -FeedPat or set the SHESHA_FEED_PAT environment variable."
+if ($ExportOnly) {
+    if (-not $ExportPath) {
+        throw "-ExportPath is required when -ExportOnly is set."
+    }
+} else {
+    if (-not $BackendUrl) { throw "-BackendUrl is required (unless -ExportOnly is set)." }
+    if (-not $Username)   { throw "-Username is required (unless -ExportOnly is set)." }
+    if (-not $Password)   { throw "-Password is required (unless -ExportOnly is set)." }
+    if (-not $FeedPat) {
+        throw "No Personal Access Token supplied. Pass -FeedPat or set the SHESHA_FEED_PAT environment variable."
+    }
 }
 
-$feedAuthValue = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":$FeedPat"))
-$feedHeaders = @{ Authorization = "Basic $feedAuthValue" }
+$feedAuthValue = if ($FeedPat) { [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":$FeedPat")) } else { $null }
+$feedHeaders = if ($feedAuthValue) { @{ Authorization = "Basic $feedAuthValue" } } else { @{} }
 
 $KnownSuffixes = @(
     "Common\.Domain\.Tests", "Domain\.Tests", "Application\.Tests",
@@ -381,10 +408,10 @@ function Get-ModuleSourceCode {
 }
 
 function Get-ModuleDescription {
-    # Always-generated documentation-style description built from what was actually discovered
-    # in the module's own source code - this is used as the module's Description outright, not
-    # merely a fallback, so the registry reflects the current code rather than a stale/generic
-    # NuGet or npm package blurb.
+    # Mechanical fallback only - a regex scan can enumerate what a module contains but can't
+    # explain what it's for, so this is just a listing of entity/API/setting/enum names. Real
+    # descriptions should be authored by reading the module's actual source (see -ExportOnly /
+    # -DescriptionsFile) and passed in; this only fires for a module with no authored override.
     param($Entities, $Apis, $Settings, $Enums)
     $parts = @()
 
@@ -534,6 +561,47 @@ if ($droppedModules.Count -gt 0) {
     Write-Host "Dropped $($droppedModules.Count) non-Boxfusion/Shesha candidate(s): $($droppedModules -join ', ')" -ForegroundColor DarkGray
 }
 Write-Host "Registering $($modules.Count) module(s): $($modules.Keys -join ', ')" -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
+# Step 1.8: Export-only mode - scan each surviving module's own source (the
+# same extraction Step 2 normally does) and write it to -ExportPath, then stop.
+# No NuGet/npm lookups and no backend calls happen in this mode.
+# ---------------------------------------------------------------------------
+
+if ($ExportOnly) {
+    Write-Host ""
+    Write-Host "Export-only mode: scanning source code only (no NuGet/npm/backend calls)..." -ForegroundColor Cyan
+    $scanResults = @()
+    foreach ($moduleName in $modules.Keys) {
+        $info = $modules[$moduleName]
+        $fallbackRouteModuleName = ($moduleName -replace '^(shesha|boxfusion)\.', '') -replace '[^a-zA-Z0-9]', ''
+        $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName
+        $scanResults += [ordered]@{
+            moduleManifestName = $moduleName
+            sourceFolders      = @($info.SourceFolders)
+            entities           = $sourceCode.Entities
+            apis               = $sourceCode.Apis
+            settings           = $sourceCode.Settings
+            enums              = $sourceCode.Enums
+        }
+    }
+    $scanResults | ConvertTo-Json -Depth 10 | Set-Content -Path $ExportPath -Encoding utf8
+    Write-Host "Wrote scan results for $($scanResults.Count) module(s) to $ExportPath" -ForegroundColor Green
+    Write-Host "Next: for each module, read its actual source (using sourceFolders as a starting point) and write a real 2-4 sentence description of what it does and what it's for - not a list of entity/API names. Save as { moduleManifestName: description } JSON, then re-run this script without -ExportOnly, passing that file via -DescriptionsFile." -ForegroundColor Cyan
+    exit 0
+}
+
+$descriptionOverrides = @{}
+if ($DescriptionsFile) {
+    if (-not (Test-Path $DescriptionsFile)) {
+        throw "-DescriptionsFile '$DescriptionsFile' not found."
+    }
+    $rawDescriptions = Get-Content -Path $DescriptionsFile -Raw | ConvertFrom-Json
+    foreach ($prop in $rawDescriptions.PSObject.Properties) {
+        $descriptionOverrides[$prop.Name] = $prop.Value
+    }
+    Write-Host "Loaded $($descriptionOverrides.Count) authored description(s) from $DescriptionsFile" -ForegroundColor Cyan
+}
 
 # ---------------------------------------------------------------------------
 # Step 1.5: Resolve the private feed's flat-container (package base address)
@@ -750,11 +818,16 @@ foreach ($moduleName in $modules.Keys) {
         Write-Host "  Source: $($sourceCode.Entities.Count) entity(ies), $($sourceCode.Apis.Count) API(s) [$crudApiCount CRUD / $customApiCount custom], $($sourceCode.Settings.Count) setting(s), $($sourceCode.Enums.Count) enum(s)" -ForegroundColor Green
     }
 
-    $description = Get-ModuleDescription -Entities $sourceCode.Entities -Apis $sourceCode.Apis -Settings $sourceCode.Settings -Enums $sourceCode.Enums
-    if ($description) {
-        Write-Host "  Generated description from entities/APIs/settings/enums" -ForegroundColor DarkGray
+    if ($descriptionOverrides.ContainsKey($moduleName)) {
+        $description = $descriptionOverrides[$moduleName]
+        Write-Host "  Using authored description" -ForegroundColor Green
     } else {
-        Write-Host "  No entities/APIs/settings/enums found in source - description left blank" -ForegroundColor DarkGray
+        $description = Get-ModuleDescription -Entities $sourceCode.Entities -Apis $sourceCode.Apis -Settings $sourceCode.Settings -Enums $sourceCode.Enums
+        if ($description) {
+            Write-Host "  No authored description provided - using a mechanical fallback listing entities/APIs/settings/enums" -ForegroundColor DarkYellow
+        } else {
+            Write-Host "  No entities/APIs/settings/enums found in source - description left blank" -ForegroundColor DarkGray
+        }
     }
 
     $payloads += [ordered]@{
