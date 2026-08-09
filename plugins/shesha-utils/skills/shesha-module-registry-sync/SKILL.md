@@ -38,7 +38,12 @@ Payload shape (`InsertModuleInfoInput` / `UpdateModuleInfoInput` also has `id`):
     { "entityName": "NotificationTemplate", "properties": [ { "propertyName": "Subject", "propertyType": "string" } ] }
   ],
   "apis": [
-    { "name": "Send", "route": "/api/services/Notifications/Notification/Send", "httpMethod": "POST" }
+    { "name": "NotificationTemplateCreate", "route": "/api/dynamic/Shesha.Notifications/NotificationTemplate/Crud/Create", "httpMethod": "POST", "category": "Crud" },
+    { "name": "NotificationTemplateGet", "route": "/api/dynamic/Shesha.Notifications/NotificationTemplate/Crud/Get", "httpMethod": "GET", "category": "Crud" },
+    { "name": "NotificationTemplateGetAll", "route": "/api/dynamic/Shesha.Notifications/NotificationTemplate/Crud/GetAll", "httpMethod": "GET", "category": "Crud" },
+    { "name": "NotificationTemplateUpdate", "route": "/api/dynamic/Shesha.Notifications/NotificationTemplate/Crud/Update", "httpMethod": "PUT", "category": "Crud" },
+    { "name": "NotificationTemplateDelete", "route": "/api/dynamic/Shesha.Notifications/NotificationTemplate/Crud/Delete", "httpMethod": "DELETE", "category": "Crud" },
+    { "name": "Send", "route": "/api/services/Notifications/Notification/Send", "httpMethod": "POST", "category": "Custom" }
   ],
   "settings": [
     { "name": "DefaultChannel", "description": "The channel used when none is specified" }
@@ -112,14 +117,17 @@ The script will:
 7. Merge NuGet + npm versions into one `versions` array per module (one entry per distinct version number; a version present in both ecosystems gets both dependency lists appended).
 8. **Scan each surviving module's own source folders** (the directories containing its matched `.csproj` files - not the whole repo) for:
    - **Domain entities**: any `public class X : FullAuditedEntity<...>` (or `AuditedEntity`/`CreationAuditedEntity`/`Entity`) and its `public virtual {Type} {Name} { get; set; }` properties.
-   - **APIs**: any `*AppService` class's `[HttpGet]`/`[HttpPost]`/`[HttpPut]`/`[HttpDelete]`-attributed public methods, with the route reconstructed as `/api/services/{RouteModuleName}/{ServiceName}/{MethodName}` — `RouteModuleName` comes from the `moduleName: "X"` argument to `CreateControllersForAppServices(...)` found in the module's own `*Module.cs`/`*ApplicationModule.cs`, falling back to the module's own short name if not found.
+   - **APIs** are extracted into two categories, both stored in the same `apis` array with a `category` field so the registry (and its UI) can group them:
+     - **`"Crud"`** — Shesha auto-generates a dynamic CRUD controller for every domain entity, so these aren't scanned for in source at all: for **every entity found in this same step**, 5 APIs are synthesized directly — `Create` (POST), `Get` (GET), `GetAll` (GET), `Update` (PUT), `Delete` (DELETE) — with route `/api/dynamic/{RouteModuleName}/{EntityName}/Crud/{Method}` and name `{EntityName}{Method}` (e.g. `NotificationTemplateCreate`). This guarantees every entity discovered shows a full CRUD API set, even if the entity has no hand-written controller at all.
+     - **`"Custom"`** — any `*AppService` class's `[HttpGet]`/`[HttpPost]`/`[HttpPut]`/`[HttpDelete]`-attributed public methods, with the route reconstructed as `/api/services/{RouteModuleName}/{ServiceName}/{MethodName}`.
+     - `RouteModuleName` (used for both categories) comes from the `moduleName: "X"` argument to `CreateControllersForAppServices(...)` found in the module's own `*Module.cs`/`*ApplicationModule.cs`, falling back to the module's own short name if not found.
    - **Settings**: any `interface IXSettings : ISettingAccessors` and its `[Setting(...)]`-decorated properties, using the `[Display(Name=..., Description=...)]` values when present.
    - **Enums**: any `public enum X { ... }` declaration (including Shesha's code-based `RefList*` reference-list convention, e.g. `[ReferenceList(...)] public enum RefListFoo : long { ... }`), capturing each member's name and its explicit numeric value if one is given (`null` otherwise). Member-level attributes like `[Description("...")]` and XML doc comments are stripped before parsing, so they don't interfere. An enum with an empty body (a purely data-driven reference list with no compile-time members) is still recorded, with an empty `values` array.
 
    This is regex/brace-matching heuristic extraction, not a full C# parser — it's tuned to how this codebase (and Shesha generally) actually writes these patterns, not arbitrary C#. Verified against this exact repo's own `ModuleInfo`/`ModuleInfoSearchAppService`/`IModuleRegistrySettings` (entities/APIs/settings) and against real `RefList*` enum files from `pd-chat` (enums, including a multi-value enum with `[Description]`/XML-doc-decorated members and an empty-body data-driven reference list).
 9. **If no description was found on NuGet/npm, auto-generate one** from the entities/APIs just discovered (e.g. *"Provides domain entities: X, Y. Exposes APIs: A, B."*). A description already found from the package registries always wins — this is purely a fallback for modules that have none.
 10. Authenticate against the backend (`/api/TokenAuth/Authenticate`), list existing modules via `GetAll`, then `Update` (if a module with that manifest name already exists) or `Insert` (otherwise) for each discovered module.
-11. Print a colored summary table: Created / Updated / Failed per module, with version/entity/API/setting/enum counts.
+11. Print a colored summary table: Created / Updated / Failed per module, with version/entity/API/setting/enum counts (API counts break down as `[N CRUD / M custom]`).
 
 ### Step 5: Present results
 
@@ -132,6 +140,7 @@ Report the summary table to the user, and flag any `Failed` rows with their erro
 - **Only Boxfusion/Shesha-owned packages get registered** — anything not matching the `shesha`/`boxfusion`/`@shesha-io/` naming filter is dropped and logged, never inserted. This applies at both the module level (whole packages) and the dependency level (a Shesha/Boxfusion module's public dependencies like `Abp`/`NHibernate`/`Microsoft.*` are recorded nowhere — only its Shesha/Boxfusion dependencies survive into `dependencies`).
 - **A module not published anywhere is still registered** — with an empty `versions` array — rather than skipped, so it's discoverable even before its first release.
 - **Entities/APIs/settings/enums are extracted per-module, not per-repo** — only the source folders belonging to that specific module's own `.csproj` files are scanned, so one module's entities never bleed into another's.
+- **Every entity gets a full CRUD API set for free.** The 5 `Crud`-category APIs per entity are synthesized from the entity list itself, not scanned from source — so an entity with zero hand-written controller code still shows `Create`/`Get`/`GetAll`/`Update`/`Delete` in the registry. Only endpoints beyond that default set need a real `[Http*]`-attributed AppService method, and those are the ones tagged `Custom`.
 - **Auto-generated descriptions are a last resort** — a description found on NuGet/npm always takes priority over the entities/APIs summary.
 - **Idempotent by design** — re-running against the same repo updates existing entries by exact (case-insensitive) `moduleManifestName` match rather than duplicating them. Since `GetAll` is paginated, the script pages through it (100 at a time) until a short page is returned, so this stays correct as the registry grows past one page.
 - Transient NuGet/npm failures are retried once, then that specific version is skipped with a warning — the whole run never aborts because one version's lookup failed.

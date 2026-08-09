@@ -180,6 +180,8 @@ function Get-RouteModuleNameFromContent {
 }
 
 function Get-ApisFromContent {
+    # Custom APIs - explicit [HttpGet]/[HttpPost]/etc-attributed AppService methods. Tagged
+    # "Custom" so the registry can group them separately from the auto-generated CRUD set.
     param([string]$Content, [string]$RouteModuleName)
     $Content = Strip-CsComments -Content $Content
     $results = @()
@@ -194,6 +196,34 @@ function Get-ApisFromContent {
                 name       = $mm.Groups[2].Value
                 httpMethod = $mm.Groups[1].Value.ToUpperInvariant()
                 route      = "/api/services/$RouteModuleName/$serviceName/$($mm.Groups[2].Value)"
+                category   = "Custom"
+            }
+        }
+    }
+    return $results
+}
+
+function Get-CrudApisForEntities {
+    # Shesha auto-generates a dynamic CRUD controller for every domain entity - these APIs
+    # exist regardless of any hand-written AppService, so they're derived directly from the
+    # entities already found by Get-EntitiesFromContent rather than scanned for separately.
+    # Route shape: /api/dynamic/{RouteModuleName}/{EntityName}/Crud/{Method}
+    param([array]$Entities, [string]$RouteModuleName)
+    $crudMethods = [ordered]@{
+        Create = 'POST'
+        Get    = 'GET'
+        GetAll = 'GET'
+        Update = 'PUT'
+        Delete = 'DELETE'
+    }
+    $results = @()
+    foreach ($entity in $Entities) {
+        foreach ($method in $crudMethods.Keys) {
+            $results += [ordered]@{
+                name       = "$($entity.entityName)$method"
+                httpMethod = $crudMethods[$method]
+                route      = "/api/dynamic/$RouteModuleName/$($entity.entityName)/Crud/$method"
+                category   = "Crud"
             }
         }
     }
@@ -287,7 +317,10 @@ function Get-ModuleSourceCode {
         $routeModuleName = $FallbackRouteModuleName
     }
 
+    # Crud APIs first (one group per entity), then Custom APIs discovered on AppServices -
+    # keeps the two categories visually grouped in the payload sent to the registry.
     $apis = @()
+    $apis += Get-CrudApisForEntities -Entities $entities -RouteModuleName $routeModuleName
     foreach ($item in $allContent) {
         $apis += Get-ApisFromContent -Content $item.Content -RouteModuleName $routeModuleName
     }
@@ -620,7 +653,9 @@ foreach ($moduleName in $modules.Keys) {
     $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName
 
     if ($sourceCode.Entities.Count -gt 0 -or $sourceCode.Apis.Count -gt 0 -or $sourceCode.Settings.Count -gt 0 -or $sourceCode.Enums.Count -gt 0) {
-        Write-Host "  Source: $($sourceCode.Entities.Count) entity(ies), $($sourceCode.Apis.Count) API(s), $($sourceCode.Settings.Count) setting(s), $($sourceCode.Enums.Count) enum(s)" -ForegroundColor Green
+        $crudApiCount = ($sourceCode.Apis | Where-Object { $_.category -eq 'Crud' }).Count
+        $customApiCount = ($sourceCode.Apis | Where-Object { $_.category -eq 'Custom' }).Count
+        Write-Host "  Source: $($sourceCode.Entities.Count) entity(ies), $($sourceCode.Apis.Count) API(s) [$crudApiCount CRUD / $customApiCount custom], $($sourceCode.Settings.Count) setting(s), $($sourceCode.Enums.Count) enum(s)" -ForegroundColor Green
     }
 
     if (-not $description) {
