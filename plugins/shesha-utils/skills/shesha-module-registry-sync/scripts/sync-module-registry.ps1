@@ -122,6 +122,22 @@ function Clean-VersionRange {
     }
 }
 
+function Get-NugetPublishedDate {
+    # Reads the publish date off the NuGet v3 registration leaf for one package version
+    # (standard protocol, e.g. {registrationBase}/{id}/{version}.json -> catalogEntry.published).
+    # Best-effort: returns $null on any failure rather than aborting the sync over a missing date.
+    param([string]$RegistrationBase, [string]$IdLower, [string]$VersionLower, [hashtable]$Headers)
+    if (-not $RegistrationBase) { return $null }
+    try {
+        $leaf = Invoke-RestMethod -Uri "$RegistrationBase/$IdLower/$VersionLower.json" -Method Get -Headers $Headers -ErrorAction Stop
+        $published = if ($leaf.catalogEntry.published) { $leaf.catalogEntry.published } else { $leaf.published }
+        if (-not $published) { return $null }
+        return ([datetime]$published).ToString("o")
+    } catch {
+        return $null
+    }
+}
+
 function Get-BraceBody {
     # Returns the text between the first '{' at/after $StartIndex and its matching '}'.
     param([string]$Content, [int]$StartIndex)
@@ -479,6 +495,14 @@ if (-not $flatContainerResource) {
 }
 $flatContainerBase = $flatContainerResource.'@id'.TrimEnd('/')
 
+# RegistrationsBaseUrl exposes each version's publish date (catalogEntry.published) - optional,
+# since publish dates are a nice-to-have, not required for the rest of the sync to work.
+$registrationResource = $serviceIndex.resources | Where-Object { $_.'@type' -like 'RegistrationsBaseUrl*' } | Select-Object -First 1
+$registrationBase = if ($registrationResource) { $registrationResource.'@id'.TrimEnd('/') } else { $null }
+if (-not $registrationBase) {
+    Write-Warning "The NuGet service index at $NugetFeedUrl has no RegistrationsBaseUrl resource - NuGet-sourced versions will have no publishedDate."
+}
+
 $azureOrg = $null
 $nugetAzureFeed = $null
 if ($NugetFeedUrl -match 'pkgs\.dev\.azure\.com/([^/]+)/_packaging/([^/]+)/') {
@@ -542,7 +566,10 @@ foreach ($moduleName in $modules.Keys) {
             } catch {
                 Write-Warning "  Could not fetch/parse nuspec for $resolvedNugetId $version, skipping this version's dependencies"
                 if (-not $versions.ContainsKey($version)) {
-                    $versions[$version] = New-Object System.Collections.Generic.List[object]
+                    $versions[$version] = [ordered]@{
+                        Dependencies  = New-Object System.Collections.Generic.List[object]
+                        PublishedDate = Get-NugetPublishedDate -RegistrationBase $registrationBase -IdLower $idLower -VersionLower $versionLower -Headers $feedHeaders
+                    }
                 }
                 continue
             }
@@ -572,7 +599,10 @@ foreach ($moduleName in $modules.Keys) {
                     Write-Warning "  Skipping one malformed dependency entry for $resolvedNugetId $version : $($_.Exception.Message)"
                 }
             }
-            $versions[$version] = $depList
+            $versions[$version] = [ordered]@{
+                Dependencies  = $depList
+                PublishedDate = Get-NugetPublishedDate -RegistrationBase $registrationBase -IdLower $idLower -VersionLower $versionLower -Headers $feedHeaders
+            }
         }
         if ($nugetDroppedDepsCount -gt 0) {
             Write-Host "  Kept only Shesha/Boxfusion dependencies - dropped $nugetDroppedDepsCount public dependency reference(s) across all versions" -ForegroundColor DarkGray
@@ -616,10 +646,20 @@ foreach ($moduleName in $modules.Keys) {
                         }
                     }
                 }
+                $npmPublishedProp = if ($npmDoc.time) { $npmDoc.time.PSObject.Properties[$versionName] } else { $null }
+                $npmPublished = if ($npmPublishedProp) { $npmPublishedProp.Value } else { $null }
                 if (-not $versions.ContainsKey($versionName)) {
-                    $versions[$versionName] = $depList
+                    $versions[$versionName] = [ordered]@{
+                        Dependencies  = $depList
+                        PublishedDate = $npmPublished
+                    }
                 } else {
-                    $versions[$versionName].AddRange($depList)
+                    $versions[$versionName].Dependencies.AddRange($depList)
+                    # NuGet's registration date wins if both ecosystems published this version -
+                    # only fall back to npm's when NuGet didn't already resolve one.
+                    if (-not $versions[$versionName].PublishedDate) {
+                        $versions[$versionName].PublishedDate = $npmPublished
+                    }
                 }
             }
             if ($npmDroppedDepsCount -gt 0) {
@@ -641,12 +681,18 @@ foreach ($moduleName in $modules.Keys) {
         try {
             $versionsArray += [ordered]@{
                 versionNumber = $versionNumber
-                dependencies  = $versions[$versionNumber]
+                publishedDate = $versions[$versionNumber].PublishedDate
+                dependencies  = $versions[$versionNumber].Dependencies
             }
         } catch {
             Write-Warning "  Skipping malformed version entry '$versionNumber' for $moduleName : $($_.Exception.Message)"
         }
     }
+    # Group/order newest-first so multiple releases on the same day naturally sit together;
+    # versions with no resolvable publish date sort last rather than breaking the sort.
+    $versionsArray = @($versionsArray | Sort-Object -Descending -Property @{
+        Expression = { if ($_.publishedDate) { [datetime]$_.publishedDate } else { [datetime]::MinValue } }
+    })
 
     # --- Domain entities, APIs and settings, extracted from the module's own source code ---
     $fallbackRouteModuleName = ($moduleName -replace '^(shesha|boxfusion)\.', '') -replace '[^a-zA-Z0-9]', ''
