@@ -1,6 +1,6 @@
 ---
 name: shesha-module-registry-sync
-description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed, extracts its domain entities/APIs/settings/enums from its own C# source and auto-summarizes a description from them, and upserts everything into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
+description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed, extracts its domain entities/APIs/settings/enums from its own C# source, has a real "what does this module do and what's it for" description authored per module by reading the actual code (falling back to a mechanical name listing only if skipped), and upserts everything into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
 ---
 
 # Shesha Module Registry Sync
@@ -24,7 +24,7 @@ Payload shape (`InsertModuleInfoInput` / `UpdateModuleInfoInput` also has `id`):
 ```json
 {
   "moduleManifestName": "Shesha.Notifications",
-  "description": "...",
+  "description": "Manages templated multi-channel notifications (email, SMS, push) with per-channel default settings, letting other modules trigger a notification by template rather than composing message content themselves.",
   "limitations": "...",
   "nugetLocation": "https://dev.azure.com/boxfusion/_artifacts/feed/nuget.shesha.dev/NuGet/Shesha.Notifications/overview",
   "npmLocation": "https://dev.azure.com/boxfusion/_artifacts/feed/nuget.shesha.dev/Npm/@shesha-io/notifications/overview",
@@ -96,19 +96,37 @@ Write the script from [scripts/sync-module-registry.ps1](scripts/sync-module-reg
 
 This script makes real network calls to the private Boxfusion Azure Artifacts feed and **writes real data** into the Module Registry (creating or updating records, which also re-indexes them in Pinecone) at whatever `BackendUrl` was given in Step 1 — mutating live data. Also confirm the user has a PAT available (via `SHESHA_FEED_PAT` or `-FeedPat`) — the script fails fast with a clear error if neither is set.
 
-### Step 4: Run the script
+### Step 4: Scan first, then author real descriptions, then sync
+
+A regex scan can enumerate a module's entity/API/setting/enum *names*, but it has no idea what the module is actually *for* — that takes reading the code. So this runs in three passes instead of one:
+
+**4a. Export-only scan** — no backend/NuGet/npm calls, just the source scan:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "{RepoPath}/.claude/skills/shesha-module-registry-sync/scripts/sync-module-registry.ps1" `
+  -RepoPath "{repoPath}" `
+  -ExportOnly `
+  -ExportPath "{scratchpad}/module-scan.json"
+```
+
+This writes one entry per discovered module — `moduleManifestName`, `sourceFolders`, `entities`, `apis`, `settings`, `enums` — to `module-scan.json` and exits without touching the registry.
+
+**4b. Author a real description per module** — read `module-scan.json`, then, for each module, actually open its source (starting from `sourceFolders`: the module's `*Module.cs`, its main entity/AppService files, any XML doc comments or README) and write a genuine 2–4 sentence description of **what the module does and what it's for** — its purpose and role in the system — not a restated list of entity/API names. Bad: *"Provides domain entities: NotificationTemplate. Exposes 5 CRUD endpoints and custom endpoint Send."* Good: *"Manages templated multi-channel notifications (email, SMS, push) with per-channel default settings, letting other modules trigger a notification by template rather than composing message content themselves."* Save the results as `{ "moduleManifestName": "description text", ... }` to `descriptions.json`.
+
+**4c. Run the real sync**, passing that file so the authored descriptions are used verbatim instead of the mechanical fallback:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "{RepoPath}/.claude/skills/shesha-module-registry-sync/scripts/sync-module-registry.ps1" `
   -RepoPath "{repoPath}" `
   -BackendUrl "{backendUrl from Step 1}" `
   -Username "{username from Step 1}" `
-  -Password "{password from Step 1}"
+  -Password "{password from Step 1}" `
+  -DescriptionsFile "{scratchpad}/descriptions.json"
 ```
 
-`RepoPath`/`BackendUrl`/`Username`/`Password` are all **mandatory** — the script throws immediately if any is missing rather than falling back to a hardcoded environment. `NugetFeedUrl`/`NpmRegistryUrl` are optional and default to the `nuget.shesha.dev`/`npm.shesha.dev` feeds shown in [Private feed](#private-feed) above. `FeedPat` has no default; set `SHESHA_FEED_PAT` before running rather than passing `-FeedPat` on the command line.
+`RepoPath` is always mandatory. `BackendUrl`/`Username`/`Password`/a PAT (`SHESHA_FEED_PAT` or `-FeedPat`) are mandatory for this real-sync run, but not for the `-ExportOnly` pass in 4a. `NugetFeedUrl`/`NpmRegistryUrl` are optional and default to the `nuget.shesha.dev`/`npm.shesha.dev` feeds shown in [Private feed](#private-feed) above. `-DescriptionsFile` is optional — a module with no entry in it (or if the whole step is skipped) falls back to the mechanical entities/APIs/settings/enums listing rather than failing, but that fallback should be treated as a last resort, not the goal.
 
-The script will:
+The full run (4c) will:
 1. Recursively find `*.csproj` (excluding `bin`/`obj`) and group them into module names by stripping `.Domain`/`.Application`/`.Web.Core`/`.Web.Host`/`.Tests`-style suffixes, preferring each csproj's `<PackageId>`.
 2. Recursively find `package.json` (excluding `node_modules`) and match each to a module by normalized name similarity; unmatched packages become their own npm-only module.
 3. Recursively find `SKILL.md` files and match folder names to modules the same way, capturing `skillName`/`skillLocation` when found.
@@ -127,7 +145,7 @@ The script will:
    - **Enums**: any `public enum X { ... }` declaration (including Shesha's code-based `RefList*` reference-list convention, e.g. `[ReferenceList(...)] public enum RefListFoo : long { ... }`), capturing each member's name and its explicit numeric value if one is given (`null` otherwise). Member-level attributes like `[Description("...")]` and XML doc comments are stripped before parsing, so they don't interfere. An enum with an empty body (a purely data-driven reference list with no compile-time members) is still recorded, with an empty `values` array.
 
    This is regex/brace-matching heuristic extraction, not a full C# parser — it's tuned to how this codebase (and Shesha generally) actually writes these patterns, not arbitrary C#. Verified against this exact repo's own `ModuleInfo`/`ModuleInfoSearchAppService`/`IModuleRegistrySettings` (entities/APIs/settings) and against real `RefList*` enum files from `pd-chat` (enums, including a multi-value enum with `[Description]`/XML-doc-decorated members and an empty-body data-driven reference list).
-9. **Always generate the module's `description` from what was just discovered in its own source** — domain entity names, a CRUD/custom API breakdown, setting names, and enum/reference-list names (e.g. *"Domain entities: NotificationTemplate. Exposes 5 CRUD endpoint(s) and custom endpoints (Send). Settings: DefaultChannel. Reference lists/enums: RefListNotificationChannel."*). This always overrides any description NuGet/npm might report for the package — the registry's summary tracks the code, not a possibly-stale package blurb — and is `null` only when the module has no entities/APIs/settings/enums at all.
+9. **Set the module's `description`** — if `-DescriptionsFile` (Step 4b) has an entry for this module, that authored, understanding-based description is used verbatim. Otherwise it falls back to a mechanical listing of entity/API/setting/enum names (e.g. *"Domain entities: NotificationTemplate. Exposes 5 CRUD endpoint(s) and custom endpoints (Send). Settings: DefaultChannel. Reference lists/enums: RefListNotificationChannel."*) — a last resort, not the goal, since it's `null` when there's nothing to list. Either way this never falls back to whatever NuGet/npm reports for the package — the registry's summary should track what the module actually does, not a possibly-stale package blurb.
 10. Authenticate against the backend (`/api/TokenAuth/Authenticate`), list existing modules via `GetAll`, then `Update` (if a module with that manifest name already exists) or `Insert` (otherwise) for each discovered module.
 11. Print a colored summary table: Created / Updated / Failed per module, with version/entity/API/setting/enum counts (API counts break down as `[N CRUD / M custom]`).
 
@@ -137,14 +155,14 @@ Report the summary table to the user, and flag any `Failed` rows with their erro
 
 ## Key Rules
 
-- **No hardcoded target environment.** `BackendUrl`, `Username`, and `Password` are mandatory script parameters with no defaults — always ask the user which backend and which credentials, never assume a local-dev instance.
+- **No hardcoded target environment.** `BackendUrl`, `Username`, and `Password` are mandatory for the real sync run (not for the `-ExportOnly` scan) with no defaults — always ask the user which backend and which credentials, never assume a local-dev instance.
 - **Module ≠ csproj.** Group by conceptual module first; never create separate registry entries for `.Domain` vs `.Application` of the same module.
 - **Only Boxfusion/Shesha-owned packages get registered** — anything not matching the `shesha`/`boxfusion`/`@shesha-io/` naming filter is dropped and logged, never inserted. This applies at both the module level (whole packages) and the dependency level (a Shesha/Boxfusion module's public dependencies like `Abp`/`NHibernate`/`Microsoft.*` are recorded nowhere — only its Shesha/Boxfusion dependencies survive into `dependencies`).
 - **A module not published anywhere is still registered** — with an empty `versions` array — rather than skipped, so it's discoverable even before its first release.
 - **Entities/APIs/settings/enums are extracted per-module, not per-repo** — only the source folders belonging to that specific module's own `.csproj` files are scanned, so one module's entities never bleed into another's.
 - **Every entity gets a full CRUD API set for free.** The 5 `Crud`-category APIs per entity are synthesized from the entity list itself, not scanned from source — so an entity with zero hand-written controller code still shows `Create`/`Get`/`GetAll`/`Update`/`Delete` in the registry. Only endpoints beyond that default set need a real `[Http*]`-attributed AppService method, and those are the ones tagged `Custom`.
 - **Versions carry a `publishedDate` and are always sent newest-first.** The registry backend re-sorts by `publishedDate` on every read regardless of insertion order, so this is belt-and-suspenders, not the only place ordering is enforced — but the script still sorts before sending so the console summary and the payload itself read the same way. A version with no resolvable publish date (feed didn't expose one, or the lookup failed) still gets registered — with `publishedDate: null` — rather than being dropped.
-- **Descriptions are always auto-generated from source, never taken from NuGet/npm.** Every insert/update writes a fresh documentation-style summary built from that module's own entities/APIs/settings/enums, so the registry always reflects the current code rather than a stale or missing package description.
+- **Descriptions should be authored by actually reading the module's source, never taken from NuGet/npm.** Run the `-ExportOnly` scan (Step 4a), read each module's real source to write a genuine "what does this do and what's it for" summary (Step 4b), then pass it via `-DescriptionsFile` (Step 4c). A module with no authored entry falls back to a mechanical entities/APIs/settings/enums listing — acceptable as a last resort, but never the intended outcome.
 - **Idempotent by design** — re-running against the same repo updates existing entries by exact (case-insensitive) `moduleManifestName` match rather than duplicating them. Since `GetAll` is paginated, the script pages through it (100 at a time) until a short page is returned, so this stays correct as the registry grows past one page.
 - Transient NuGet/npm failures are retried once, then that specific version is skipped with a warning — the whole run never aborts because one version's lookup failed.
 - Multi-targeted NuGet packages may list the same dependency more than once (once per target framework group) — the script doesn't de-duplicate across TFM groups; treat minor duplication in `dependencies` as a known limitation, not a bug.
