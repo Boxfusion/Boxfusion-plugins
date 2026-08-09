@@ -164,15 +164,30 @@ function Strip-CsComments {
     return $Content
 }
 
+function Get-NamespaceAtIndex {
+    # Finds the namespace a given position in a file falls under - the closest preceding
+    # "namespace X.Y { ... }" (classic) or "namespace X.Y;" (C# 10+ file-scoped) declaration.
+    param([string]$Content, [int]$Index)
+    $namespaceMatches = [regex]::Matches($Content, 'namespace\s+([\w\.]+)\s*[{;]')
+    $result = $null
+    foreach ($nsMatch in $namespaceMatches) {
+        if ($nsMatch.Index -ge $Index) { break }
+        $result = $nsMatch.Groups[1].Value
+    }
+    return $result
+}
+
 function Get-EntitiesFromContent {
     # Regex/brace-matching heuristic extraction of Shesha domain entities - not a full C# parser,
     # but matches the conventions this codebase (and Shesha generally) actually uses.
     param([string]$Content)
     $Content = Strip-CsComments -Content $Content
     $results = @()
-    $classMatches = [regex]::Matches($Content, 'public\s+class\s+(\w+)\s*:\s*(?:FullAuditedEntity|AuditedEntity|CreationAuditedEntity|Entity)\s*<')
+    $classMatches = [regex]::Matches($Content, 'public\s+class\s+(\w+)\s*:\s*(FullAuditedEntity|AuditedEntity|CreationAuditedEntity|Entity)\s*<([^<>]+)>')
     foreach ($m in $classMatches) {
         $entityName = $m.Groups[1].Value
+        $baseClass = "$($m.Groups[2].Value)<$($m.Groups[3].Value.Trim())>"
+        $namespaceName = Get-NamespaceAtIndex -Content $Content -Index $m.Index
         $body = Get-BraceBody -Content $Content -StartIndex $m.Index
         if (-not $body) { continue }
         $properties = @()
@@ -180,7 +195,7 @@ function Get-EntitiesFromContent {
         foreach ($p in $propMatches) {
             $properties += [ordered]@{ propertyName = $p.Groups[2].Value; propertyType = $p.Groups[1].Value.Trim() }
         }
-        $results += [ordered]@{ entityName = $entityName; properties = $properties }
+        $results += [ordered]@{ entityName = $entityName; namespace = $namespaceName; baseClass = $baseClass; properties = $properties }
     }
     return $results
 }
@@ -365,19 +380,41 @@ function Get-ModuleSourceCode {
     return [ordered]@{ Entities = $entities; Apis = $apis; Settings = $settings; Enums = $enums }
 }
 
-function Get-ModuleSummary {
-    # Best-effort auto-description built from what was actually discovered in the source code -
-    # only used as a fallback when no description was found on NuGet/npm.
-    param($Entities, $Apis)
+function Get-ModuleDescription {
+    # Always-generated documentation-style description built from what was actually discovered
+    # in the module's own source code - this is used as the module's Description outright, not
+    # merely a fallback, so the registry reflects the current code rather than a stale/generic
+    # NuGet or npm package blurb.
+    param($Entities, $Apis, $Settings, $Enums)
     $parts = @()
+
     if ($Entities.Count -gt 0) {
         $entityNames = ($Entities | ForEach-Object { $_.entityName }) -join ", "
-        $parts += "Provides domain entities: $entityNames."
+        $parts += "Domain entities: $entityNames."
     }
-    if ($Apis.Count -gt 0) {
-        $apiNames = ($Apis | ForEach-Object { $_.name } | Select-Object -Unique) -join ", "
-        $parts += "Exposes APIs: $apiNames."
+
+    $crudCount = @($Apis | Where-Object { $_.category -eq 'Crud' }).Count
+    $customApis = @($Apis | Where-Object { $_.category -eq 'Custom' })
+    if ($crudCount -gt 0 -or $customApis.Count -gt 0) {
+        $apiParts = @()
+        if ($crudCount -gt 0) { $apiParts += "$crudCount CRUD endpoint(s)" }
+        if ($customApis.Count -gt 0) {
+            $customNames = ($customApis | ForEach-Object { $_.name } | Select-Object -Unique) -join ", "
+            $apiParts += "custom endpoints ($customNames)"
+        }
+        $parts += "Exposes " + ($apiParts -join " and ") + "."
     }
+
+    if ($Settings.Count -gt 0) {
+        $settingNames = ($Settings | ForEach-Object { $_.name }) -join ", "
+        $parts += "Settings: $settingNames."
+    }
+
+    if ($Enums.Count -gt 0) {
+        $enumNames = ($Enums | ForEach-Object { $_.enumName }) -join ", "
+        $parts += "Reference lists/enums: $enumNames."
+    }
+
     if ($parts.Count -eq 0) { return $null }
     return ($parts -join " ")
 }
@@ -549,7 +586,6 @@ foreach ($moduleName in $modules.Keys) {
     Write-Host "=== $moduleName ===" -ForegroundColor Yellow
 
     $versions = @{}  # versionNumber -> List[ @{dependencyName; dependencyVersion} ]
-    $description = $null
     $nugetLocation = $null
     $npmLocation = $null
 
@@ -595,13 +631,6 @@ foreach ($moduleName in $modules.Keys) {
                 continue
             }
 
-            if (-not $description) {
-                $descNode = $nuspecXml.SelectSingleNode("//*[local-name()='description']")
-                if ($descNode -and $descNode.InnerText.Trim()) {
-                    $description = $descNode.InnerText.Trim()
-                }
-            }
-
             $depList = New-Object System.Collections.Generic.List[object]
             $depNodes = $nuspecXml.SelectNodes("//*[local-name()='dependency']")
             foreach ($depNode in $depNodes) {
@@ -643,10 +672,6 @@ foreach ($moduleName in $modules.Keys) {
             $npmVersionNames = $npmDoc.versions | Get-Member -MemberType NoteProperty | ForEach-Object { $_.Name }
             Write-Host "  npm: $($info.NpmPackage) ($($npmVersionNames.Count) version(s))" -ForegroundColor Green
             $npmDroppedDepsCount = 0
-
-            if (-not $description -and $npmDoc.description) {
-                $description = $npmDoc.description
-            }
 
             foreach ($versionName in $npmVersionNames) {
                 $versionDoc = $npmDoc.versions.$versionName
@@ -725,11 +750,11 @@ foreach ($moduleName in $modules.Keys) {
         Write-Host "  Source: $($sourceCode.Entities.Count) entity(ies), $($sourceCode.Apis.Count) API(s) [$crudApiCount CRUD / $customApiCount custom], $($sourceCode.Settings.Count) setting(s), $($sourceCode.Enums.Count) enum(s)" -ForegroundColor Green
     }
 
-    if (-not $description) {
-        $description = Get-ModuleSummary -Entities $sourceCode.Entities -Apis $sourceCode.Apis
-        if ($description) {
-            Write-Host "  No description found on NuGet/npm - generated one from entities/APIs" -ForegroundColor DarkGray
-        }
+    $description = Get-ModuleDescription -Entities $sourceCode.Entities -Apis $sourceCode.Apis -Settings $sourceCode.Settings -Enums $sourceCode.Enums
+    if ($description) {
+        Write-Host "  Generated description from entities/APIs/settings/enums" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  No entities/APIs/settings/enums found in source - description left blank" -ForegroundColor DarkGray
     }
 
     $payloads += [ordered]@{
