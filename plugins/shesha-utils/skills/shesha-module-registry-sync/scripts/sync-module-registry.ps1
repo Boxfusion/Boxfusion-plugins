@@ -195,6 +195,19 @@ function Get-RouteModuleNameFromContent {
     return $null
 }
 
+function Get-CrudRouteModuleNameFromContent {
+    # Finds the name passed to `new SheshaModuleInfo("X")` on the ModuleInfo override in the
+    # module's own Module.cs (Domain layer), e.g.
+    #   public override SheshaModuleInfo ModuleInfo => new SheshaModuleInfo("boxfusion.chat");
+    # This is the RouteModuleName used specifically for the auto-generated
+    # /api/dynamic/{RouteModuleName}/{EntityName}/Crud/{Method} CRUD routes.
+    param([string]$Content)
+    if ($Content -match 'ModuleInfo\s*=>\s*new\s+SheshaModuleInfo\(\s*"([^"]+)"') {
+        return $Matches[1]
+    }
+    return $null
+}
+
 function Get-ApisFromContent {
     # Custom APIs - explicit [HttpGet]/[HttpPost]/etc-attributed AppService methods. Tagged
     # "Custom" so the registry can group them separately from the auto-generated CRUD set.
@@ -305,9 +318,11 @@ function Get-ModuleSourceCode {
     $settings = @()
     $enums = @()
     $routeModuleName = $null
+    $crudRouteModuleName = $null
     $allContent = @()
 
     foreach ($folder in $SourceFolders) {
+        $isDomainFolder = (Split-Path -Path $folder -Leaf) -match '\.Domain$'
         $files = Get-ChildItem -Path $folder -Recurse -Filter "*.cs" -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
         foreach ($file in $files) {
@@ -326,17 +341,23 @@ function Get-ModuleSourceCode {
             if (-not $routeModuleName) {
                 $routeModuleName = Get-RouteModuleNameFromContent -Content $content
             }
+            if ($isDomainFolder -and -not $crudRouteModuleName) {
+                $crudRouteModuleName = Get-CrudRouteModuleNameFromContent -Content $content
+            }
         }
     }
 
     if (-not $routeModuleName) {
         $routeModuleName = $FallbackRouteModuleName
     }
+    if (-not $crudRouteModuleName) {
+        $crudRouteModuleName = if ($routeModuleName) { $routeModuleName } else { $FallbackRouteModuleName }
+    }
 
     # Crud APIs first (one group per entity), then Custom APIs discovered on AppServices -
     # keeps the two categories visually grouped in the payload sent to the registry.
     $apis = @()
-    $apis += Get-CrudApisForEntities -Entities $entities -RouteModuleName $routeModuleName
+    $apis += Get-CrudApisForEntities -Entities $entities -RouteModuleName $crudRouteModuleName
     foreach ($item in $allContent) {
         $apis += Get-ApisFromContent -Content $item.Content -RouteModuleName $routeModuleName
     }
