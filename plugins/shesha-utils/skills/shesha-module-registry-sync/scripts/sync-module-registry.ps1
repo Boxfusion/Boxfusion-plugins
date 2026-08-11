@@ -46,6 +46,15 @@
   a module's name has an entry here, that authored description is sent to the
   registry verbatim instead of the mechanical entities/APIs/settings/enums
   listing that Get-ModuleDescription falls back to.
+
+.PARAMETER SourceRef
+  A git ref (branch/tag) to scan source from instead of the live working tree,
+  read via git plumbing (ls-tree/show) rather than the filesystem. Required,
+  and forced to be required, for the shesha-io/shesha-framework repo specifically
+  (pass e.g. "releases/0.44" or "releases/0.45") - that repo is also auto-switched
+  to the public NuGet/npm registries regardless of -NugetFeedUrl/-NpmRegistryUrl's
+  defaults. Every other repo is unaffected by any of this and keeps scanning the
+  working tree against the private Boxfusion feed as before.
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -61,27 +70,16 @@ param(
 
     [switch]$ExportOnly,
     [string]$ExportPath,
-    [string]$DescriptionsFile
+    [string]$DescriptionsFile,
+    [string]$SourceRef
 )
 
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
-if ($ExportOnly) {
-    if (-not $ExportPath) {
-        throw "-ExportPath is required when -ExportOnly is set."
-    }
-} else {
-    if (-not $BackendUrl) { throw "-BackendUrl is required (unless -ExportOnly is set)." }
-    if (-not $Username)   { throw "-Username is required (unless -ExportOnly is set)." }
-    if (-not $Password)   { throw "-Password is required (unless -ExportOnly is set)." }
-    if (-not $FeedPat) {
-        throw "No Personal Access Token supplied. Pass -FeedPat or set the SHESHA_FEED_PAT environment variable."
-    }
+if ($ExportOnly -and -not $ExportPath) {
+    throw "-ExportPath is required when -ExportOnly is set."
 }
-
-$feedAuthValue = if ($FeedPat) { [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":$FeedPat")) } else { $null }
-$feedHeaders = if ($feedAuthValue) { @{ Authorization = "Basic $feedAuthValue" } } else { @{} }
 
 $KnownSuffixes = @(
     "Common\.Domain\.Tests", "Domain\.Tests", "Application\.Tests",
@@ -354,7 +352,8 @@ function Get-EnumsFromContent {
 function Get-ModuleSourceCode {
     # Scans a module's source folders once and returns everything needed to build its
     # entities/apis/settings/enums, plus the resolved route module name for API paths.
-    param([System.Collections.Generic.List[string]]$SourceFolders, [string]$FallbackRouteModuleName)
+    # Reads via the live filesystem by default, or via a specific git ref when -SourceRef is set.
+    param([System.Collections.Generic.List[string]]$SourceFolders, [string]$FallbackRouteModuleName, [string]$RepoPath, [string]$SourceRef)
 
     $entities = @()
     $settings = @()
@@ -365,14 +364,9 @@ function Get-ModuleSourceCode {
 
     foreach ($folder in $SourceFolders) {
         $isDomainFolder = (Split-Path -Path $folder -Leaf) -match '\.Domain$'
-        $files = Get-ChildItem -Path $folder -Recurse -Filter "*.cs" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
+        $files = Get-SourceFiles -RepoPath $RepoPath -SourceRef $SourceRef -RootFolder $folder -NamePattern '\.cs$' -ExcludePattern '[\\/](bin|obj)[\\/]'
         foreach ($file in $files) {
-            try {
-                $content = Get-Content -Path $file.FullName -Raw -ErrorAction Stop
-            } catch {
-                continue
-            }
+            $content = Read-SourceFile -RepoPath $RepoPath -SourceRef $SourceRef -Path $file.FullName
             if (-not $content) { continue }
             $allContent += [ordered]@{ Path = $file.FullName; Content = $content }
 
@@ -447,13 +441,132 @@ function Get-ModuleDescription {
 }
 
 # ---------------------------------------------------------------------------
+# Step 0.5: Detect the shesha-io/shesha-framework repo specifically. Only for
+# that repo: switch to the public NuGet/npm registries (no PAT needed) and
+# require a -SourceRef so entities/APIs/settings/enums are extracted from that
+# git ref instead of the live working tree. Every other repo is untouched by
+# this and keeps using the private Boxfusion feed + the working tree as before.
+# ---------------------------------------------------------------------------
+
+function Test-IsSheshaFrameworkRepo {
+    param([string]$RepoPath)
+    try {
+        $remoteUrl = git -C $RepoPath config --get remote.origin.url 2>$null
+    } catch {
+        return $false
+    }
+    if (-not $remoteUrl) { return $false }
+    return [bool]($remoteUrl -match 'shesha-io/shesha-framework(\.git)?/?$')
+}
+
+function Get-GitRefFileList {
+    # Lists every file tracked at $SourceRef (git ls-tree -r), cached per run - avoids re-listing
+    # the whole tree once per module/folder when scanning by git ref instead of disk.
+    param([string]$RepoPath, [string]$SourceRef)
+    if ($null -ne $script:GitRefFileListCache) { return $script:GitRefFileListCache }
+    $raw = git -C $RepoPath ls-tree -r --name-only $SourceRef 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $raw) {
+        throw "Could not list files at git ref '$SourceRef' in '$RepoPath' - fetch it first (e.g. 'git fetch origin $SourceRef') and check the ref name."
+    }
+    $script:GitRefFileListCache = @($raw)
+    return $script:GitRefFileListCache
+}
+
+function Get-GitRefFileContent {
+    # Reads one file's content as it exists at $SourceRef, without touching the working tree.
+    param([string]$RepoPath, [string]$SourceRef, [string]$RelativePath)
+    $posixPath = $RelativePath -replace '\\', '/'
+    $content = git -C $RepoPath show "${SourceRef}:$posixPath" 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($content -join "`n")
+}
+
+function Get-SourceFiles {
+    # Returns file entries as @{ FullName; Name; DirectoryName; Directory=@{Name} } from either the
+    # live filesystem (default) or a specific git ref (when $SourceRef is set), so every downstream
+    # discovery loop works unchanged in both modes.
+    param([string]$RepoPath, [string]$SourceRef, [string]$RootFolder, [string]$NamePattern, [string]$ExcludePattern)
+    if ($SourceRef) {
+        $allFiles = Get-GitRefFileList -RepoPath $RepoPath -SourceRef $SourceRef
+        $rootPrefix = if ($RootFolder -and $RootFolder -ne $RepoPath) {
+            ($RootFolder.TrimEnd('\', '/') -replace '\\', '/') + '/'
+        } else { '' }
+        $results = @()
+        foreach ($relPath in $allFiles) {
+            if ($rootPrefix -and -not $relPath.StartsWith($rootPrefix)) { continue }
+            $leaf = [System.IO.Path]::GetFileName($relPath)
+            if ($NamePattern -and $leaf -notmatch $NamePattern) { continue }
+            if ($ExcludePattern -and $relPath -match $ExcludePattern) { continue }
+            $dirName = [System.IO.Path]::GetDirectoryName($relPath) -replace '\\', '/'
+            $results += [ordered]@{
+                FullName      = $relPath
+                Name          = $leaf
+                DirectoryName = $dirName
+                Directory     = [ordered]@{ Name = (Split-Path -Path $dirName -Leaf) }
+            }
+        }
+        return $results
+    } else {
+        $searchRoot = if ($RootFolder) { $RootFolder } else { $RepoPath }
+        $items = Get-ChildItem -Path $searchRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match $NamePattern -and (-not $ExcludePattern -or $_.FullName -notmatch $ExcludePattern) }
+        return @($items | ForEach-Object {
+            [ordered]@{
+                FullName      = $_.FullName
+                Name          = $_.Name
+                DirectoryName = $_.DirectoryName
+                Directory     = [ordered]@{ Name = $_.Directory.Name }
+            }
+        })
+    }
+}
+
+function Read-SourceFile {
+    # Reads one file's content, dispatching to the git-ref reader when $SourceRef is set.
+    param([string]$RepoPath, [string]$SourceRef, [string]$Path)
+    if ($SourceRef) {
+        return Get-GitRefFileContent -RepoPath $RepoPath -SourceRef $SourceRef -RelativePath $Path
+    }
+    try {
+        return Get-Content -Path $Path -Raw -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+$script:GitRefFileListCache = $null
+$PublicNugetFeedUrl = "https://api.nuget.org/v3/index.json"
+$PublicNpmRegistryUrl = "https://registry.npmjs.org/"
+$isSheshaFrameworkRepo = Test-IsSheshaFrameworkRepo -RepoPath $RepoPath
+
+if ($isSheshaFrameworkRepo) {
+    Write-Host "Detected shesha-io/shesha-framework - using the public NuGet/npm registries; source will be scanned from a specific git ref, not the working tree." -ForegroundColor Cyan
+    if (-not $SourceRef) {
+        throw "This repo is shesha-io/shesha-framework - pass -SourceRef 'releases/0.44' or -SourceRef 'releases/0.45' (whichever release you're syncing) to select which branch to scan."
+    }
+    if (-not $PSBoundParameters.ContainsKey('NugetFeedUrl'))   { $NugetFeedUrl = $PublicNugetFeedUrl }
+    if (-not $PSBoundParameters.ContainsKey('NpmRegistryUrl')) { $NpmRegistryUrl = $PublicNpmRegistryUrl }
+}
+
+if (-not $ExportOnly) {
+    if (-not $BackendUrl) { throw "-BackendUrl is required (unless -ExportOnly is set)." }
+    if (-not $Username)   { throw "-Username is required (unless -ExportOnly is set)." }
+    if (-not $Password)   { throw "-Password is required (unless -ExportOnly is set)." }
+    if (-not $isSheshaFrameworkRepo -and -not $FeedPat) {
+        throw "No Personal Access Token supplied. Pass -FeedPat or set the SHESHA_FEED_PAT environment variable."
+    }
+}
+
+$feedAuthValue = if ($FeedPat -and -not $isSheshaFrameworkRepo) { [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes(":$FeedPat")) } else { $null }
+$feedHeaders = if ($feedAuthValue) { @{ Authorization = "Basic $feedAuthValue" } } else { @{} }
+
+# ---------------------------------------------------------------------------
 # Step 1: Discover modules in the repo
 # ---------------------------------------------------------------------------
 
 Write-Host "Scanning $RepoPath for modules..." -ForegroundColor Cyan
 
-$csprojFiles = Get-ChildItem -Path $RepoPath -Recurse -Filter "*.csproj" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch '\\(bin|obj|node_modules)\\' }
+$csprojFiles = Get-SourceFiles -RepoPath $RepoPath -SourceRef $SourceRef -RootFolder $RepoPath -NamePattern '\.csproj$' -ExcludePattern '[\\/](bin|obj|node_modules)[\\/]'
 
 $modules = @{}  # moduleName -> @{ NugetCandidateIds = [string[]]; NpmPackage = $null; SkillName=$null; SkillLocation=$null; SourceFolders=[string[]] }
 
@@ -461,7 +574,7 @@ foreach ($csproj in $csprojFiles) {
     $rawName = [System.IO.Path]::GetFileNameWithoutExtension($csproj.Name)
     $packageId = $rawName
     try {
-        [xml]$xml = Get-Content -Path $csproj.FullName -Raw
+        [xml]$xml = Read-SourceFile -RepoPath $RepoPath -SourceRef $SourceRef -Path $csproj.FullName
         $pkgIdNode = $xml.SelectSingleNode("//PackageId")
         if ($pkgIdNode -and $pkgIdNode.InnerText.Trim()) {
             $packageId = $pkgIdNode.InnerText.Trim()
@@ -492,12 +605,11 @@ foreach ($csproj in $csprojFiles) {
     }
 }
 
-$packageJsonFiles = Get-ChildItem -Path $RepoPath -Recurse -Filter "package.json" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch '\\node_modules\\' }
+$packageJsonFiles = Get-SourceFiles -RepoPath $RepoPath -SourceRef $SourceRef -RootFolder $RepoPath -NamePattern '^package\.json$' -ExcludePattern '[\\/]node_modules[\\/]'
 
 foreach ($pkgFile in $packageJsonFiles) {
     try {
-        $pkgJson = Get-Content -Path $pkgFile.FullName -Raw | ConvertFrom-Json
+        $pkgJson = (Read-SourceFile -RepoPath $RepoPath -SourceRef $SourceRef -Path $pkgFile.FullName) | ConvertFrom-Json
     } catch {
         continue
     }
@@ -528,8 +640,7 @@ foreach ($pkgFile in $packageJsonFiles) {
     }
 }
 
-$skillFiles = Get-ChildItem -Path $RepoPath -Recurse -Filter "SKILL.md" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch '\\node_modules\\' }
+$skillFiles = Get-SourceFiles -RepoPath $RepoPath -SourceRef $SourceRef -RootFolder $RepoPath -NamePattern '^SKILL\.md$' -ExcludePattern '[\\/]node_modules[\\/]'
 
 foreach ($key in @($modules.Keys)) {
     $normalizedModule = Get-NormalizedName -Name $key
@@ -539,7 +650,7 @@ foreach ($key in @($modules.Keys)) {
         if ($normalizedSkill -and $normalizedModule -and
             ($normalizedSkill.Contains($normalizedModule) -or $normalizedModule.Contains($normalizedSkill))) {
             $modules[$key].SkillName = $skillFolderName
-            $modules[$key].SkillLocation = $skillFile.FullName.Substring($RepoPath.TrimEnd('\', '/').Length + 1) -replace '\\', '/'
+            $modules[$key].SkillLocation = if ($SourceRef) { $skillFile.FullName } else { $skillFile.FullName.Substring($RepoPath.TrimEnd('\', '/').Length + 1) -replace '\\', '/' }
             break
         }
     }
@@ -575,7 +686,7 @@ if ($ExportOnly) {
     foreach ($moduleName in $modules.Keys) {
         $info = $modules[$moduleName]
         $fallbackRouteModuleName = ($moduleName -replace '^(shesha|boxfusion)\.', '') -replace '[^a-zA-Z0-9]', ''
-        $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName
+        $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName -RepoPath $RepoPath -SourceRef $SourceRef
         $scanResults += [ordered]@{
             moduleManifestName = $moduleName
             sourceFolders      = @($info.SourceFolders)
@@ -674,6 +785,8 @@ foreach ($moduleName in $modules.Keys) {
         $index = Invoke-JsonGet -Url $indexUrl -Headers $feedHeaders
         if ($azureOrg -and $nugetAzureFeed) {
             $nugetLocation = "https://dev.azure.com/$azureOrg/_artifacts/feed/$nugetAzureFeed/NuGet/$resolvedNugetId/overview"
+        } elseif ($isSheshaFrameworkRepo) {
+            $nugetLocation = "https://www.nuget.org/packages/$resolvedNugetId"
         }
         Write-Host "  NuGet: $resolvedNugetId ($($index.versions.Count) version(s))" -ForegroundColor Green
         $nugetDroppedDepsCount = 0
@@ -729,13 +842,15 @@ foreach ($moduleName in $modules.Keys) {
         Write-Host "  NuGet: not published" -ForegroundColor DarkGray
     }
 
-    # --- npm (private feed) ---
+    # --- npm ---
     if ($info.NpmPackage) {
         $npmPackageSegment = $info.NpmPackage -replace '/', '%2f'
         $npmDoc = Invoke-JsonGet -Url "$($NpmRegistryUrl.TrimEnd('/'))/$npmPackageSegment" -Headers $feedHeaders
         if ($npmDoc -and $npmDoc.versions) {
             if ($azureOrg -and $npmAzureFeed) {
                 $npmLocation = "https://dev.azure.com/$azureOrg/_artifacts/feed/$npmAzureFeed/Npm/$($info.NpmPackage)/overview"
+            } elseif ($isSheshaFrameworkRepo) {
+                $npmLocation = "https://www.npmjs.com/package/$($info.NpmPackage)"
             }
             $npmVersionNames = $npmDoc.versions | Get-Member -MemberType NoteProperty | ForEach-Object { $_.Name }
             Write-Host "  npm: $($info.NpmPackage) ($($npmVersionNames.Count) version(s))" -ForegroundColor Green
@@ -810,7 +925,7 @@ foreach ($moduleName in $modules.Keys) {
 
     # --- Domain entities, APIs and settings, extracted from the module's own source code ---
     $fallbackRouteModuleName = ($moduleName -replace '^(shesha|boxfusion)\.', '') -replace '[^a-zA-Z0-9]', ''
-    $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName
+    $sourceCode = Get-ModuleSourceCode -SourceFolders $info.SourceFolders -FallbackRouteModuleName $fallbackRouteModuleName -RepoPath $RepoPath -SourceRef $SourceRef
 
     if ($sourceCode.Entities.Count -gt 0 -or $sourceCode.Apis.Count -gt 0 -or $sourceCode.Settings.Count -gt 0 -or $sourceCode.Enums.Count -gt 0) {
         $crudApiCount = ($sourceCode.Apis | Where-Object { $_.category -eq 'Crud' }).Count
