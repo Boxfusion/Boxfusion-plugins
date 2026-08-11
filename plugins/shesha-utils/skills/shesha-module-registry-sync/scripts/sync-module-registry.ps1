@@ -202,25 +202,57 @@ function Get-NamespaceAtIndex {
     return $result
 }
 
-function Get-EntitiesFromContent {
+function Get-EntitiesFromAllContent {
     # Regex/brace-matching heuristic extraction of Shesha domain entities - not a full C# parser,
     # but matches the conventions this codebase (and Shesha generally) actually uses.
-    param([string]$Content)
-    $Content = Strip-CsComments -Content $Content
+    #
+    # Runs as a fixed-point pass across every file in the module TOGETHER (not per-file), because
+    # a domain entity commonly extends another domain entity rather than FullAuditedEntity/
+    # AuditedEntity/CreationAuditedEntity/Entity directly (e.g. `class SpecialWidget : Widget`),
+    # and that parent can live in a different file. Each pass adds any newly matched entity name
+    # to the set of recognized base names, so subclasses-of-subclasses are picked up too, however
+    # many inheritance levels deep - it keeps re-scanning until a full pass finds nothing new.
+    #
+    # Allows abstract/sealed/partial/static modifiers between "public" and "class" (a shared
+    # abstract base entity - `public abstract class BaseWidget : FullAuditedEntity<Guid>` - is a
+    # common Shesha pattern; without this, BaseWidget itself would never match, which would in
+    # turn keep anything extending BaseWidget from matching either) and an optional namespace
+    # qualifier in front of the base name (e.g. `Abp.Domain.Entities.Auditing.FullAuditedEntity`).
+    # Known remaining gaps: non-public (internal/no-modifier) entity classes, and entities that
+    # extend a base class defined in a DIFFERENT module (out of scope for this module's own scan
+    # by design - see Key Rules).
+    param([array]$AllContent)
     $results = @()
-    $classMatches = [regex]::Matches($Content, 'public\s+class\s+(\w+)\s*:\s*(FullAuditedEntity|AuditedEntity|CreationAuditedEntity|Entity)\s*<([^<>]+)>')
-    foreach ($m in $classMatches) {
-        $entityName = $m.Groups[1].Value
-        $baseClass = "$($m.Groups[2].Value)<$($m.Groups[3].Value.Trim())>"
-        $namespaceName = Get-NamespaceAtIndex -Content $Content -Index $m.Index
-        $body = Get-BraceBody -Content $Content -StartIndex $m.Index
-        if (-not $body) { continue }
-        $properties = @()
-        $propMatches = [regex]::Matches($body, 'public\s+virtual\s+([\w\.<>\[\],\s]+?)\s+(\w+)\s*\{\s*get;\s*set;\s*\}')
-        foreach ($p in $propMatches) {
-            $properties += [ordered]@{ propertyName = $p.Groups[2].Value; propertyType = $p.Groups[1].Value.Trim() }
+    $seenNames = New-Object System.Collections.Generic.HashSet[string]
+    $baseNames = @('FullAuditedEntity', 'AuditedEntity', 'CreationAuditedEntity', 'Entity')
+    $changed = $true
+    while ($changed) {
+        $changed = $false
+        $alternation = ($baseNames | ForEach-Object { [regex]::Escape($_) }) -join '|'
+        foreach ($item in $AllContent) {
+            $content = Strip-CsComments -Content $item.Content
+            $classMatches = [regex]::Matches($content, "public\s+((?:(?:abstract|sealed|partial|static)\s+)*)class\s+(\w+)\s*:\s*(?:[\w]+\.)*($alternation)\s*(?:<([^<>]+)>)?")
+            foreach ($m in $classMatches) {
+                $entityName = $m.Groups[2].Value
+                if ($seenNames.Contains($entityName)) { continue }
+                $isAbstract = $m.Groups[1].Value -match 'abstract'
+                $parentName = $m.Groups[3].Value
+                $genericArg = $m.Groups[4].Value
+                $baseClass = if ($genericArg) { "$parentName<$($genericArg.Trim())>" } else { $parentName }
+                $namespaceName = Get-NamespaceAtIndex -Content $content -Index $m.Index
+                $body = Get-BraceBody -Content $content -StartIndex $m.Index
+                if (-not $body) { continue }
+                $properties = @()
+                $propMatches = [regex]::Matches($body, 'public\s+virtual\s+([\w\.<>\[\],\s]+?)\s+(\w+)\s*\{\s*get;\s*set;\s*\}')
+                foreach ($p in $propMatches) {
+                    $properties += [ordered]@{ propertyName = $p.Groups[2].Value; propertyType = $p.Groups[1].Value.Trim() }
+                }
+                $results += [ordered]@{ entityName = $entityName; namespace = $namespaceName; baseClass = $baseClass; isAbstract = $isAbstract; properties = $properties }
+                [void]$seenNames.Add($entityName)
+                $baseNames += $entityName
+                $changed = $true
+            }
         }
-        $results += [ordered]@{ entityName = $entityName; namespace = $namespaceName; baseClass = $baseClass; properties = $properties }
     }
     return $results
 }
@@ -275,8 +307,10 @@ function Get-ApisFromContent {
 function Get-CrudApisForEntities {
     # Shesha auto-generates a dynamic CRUD controller for every domain entity - these APIs
     # exist regardless of any hand-written AppService, so they're derived directly from the
-    # entities already found by Get-EntitiesFromContent rather than scanned for separately.
+    # entities already found by Get-EntitiesFromAllContent rather than scanned for separately.
     # Route shape: /api/dynamic/{RouteModuleName}/{EntityName}/Crud/{Method}
+    # Abstract entities are skipped - they can't be instantiated, so Shesha never exposes a
+    # dynamic CRUD controller for one; only its concrete subclasses actually get real endpoints.
     param([array]$Entities, [string]$RouteModuleName)
     $crudMethods = [ordered]@{
         Create = 'POST'
@@ -287,6 +321,7 @@ function Get-CrudApisForEntities {
     }
     $results = @()
     foreach ($entity in $Entities) {
+        if ($entity.isAbstract) { continue }
         foreach ($method in $crudMethods.Keys) {
             $results += [ordered]@{
                 name       = "$($entity.entityName)$method"
@@ -355,7 +390,6 @@ function Get-ModuleSourceCode {
     # Reads via the live filesystem by default, or via a specific git ref when -SourceRef is set.
     param([System.Collections.Generic.List[string]]$SourceFolders, [string]$FallbackRouteModuleName, [string]$RepoPath, [string]$SourceRef)
 
-    $entities = @()
     $settings = @()
     $enums = @()
     $routeModuleName = $null
@@ -370,7 +404,6 @@ function Get-ModuleSourceCode {
             if (-not $content) { continue }
             $allContent += [ordered]@{ Path = $file.FullName; Content = $content }
 
-            $entities += Get-EntitiesFromContent -Content $content
             $settings += Get-SettingsFromContent -Content $content
             $enums += Get-EnumsFromContent -Content $content
 
@@ -382,6 +415,11 @@ function Get-ModuleSourceCode {
             }
         }
     }
+
+    # Wrapped in @(...) because a PowerShell function returning a zero-element array collapses to
+    # $null at the call site otherwise - without this, a module with no entities would serialize
+    # its "entities" field as a JSON object instead of an empty array, which the backend rejects.
+    $entities = @(Get-EntitiesFromAllContent -AllContent $allContent)
 
     if (-not $routeModuleName) {
         $routeModuleName = $FallbackRouteModuleName
