@@ -1,6 +1,6 @@
 ---
 name: shesha-module-registry-sync
-description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed, extracts its domain entities/APIs/settings/enums from its own C# source, has a real "what does this module do and what's it for" description authored per module by reading the actual code (falling back to a mechanical name listing only if skipped), and upserts everything into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
+description: Scans a target project repository for its Shesha modules, looks up each module's full published version and dependency history on the private Boxfusion Azure Artifacts NuGet/npm feed (or the public nuget.org/npmjs.org registries, plus a specific git ref for source extraction, when the repo is specifically shesha-io/shesha-framework), extracts its domain entities/APIs/settings/enums from its own C# source, has a real "what does this module do and what's it for" description authored per module by reading the actual code (falling back to a mechanical name listing only if skipped), and upserts everything into the Shesha.ModuleRegistry backend via the ModuleInfoSearch API (Pinecone-indexed on insert/update). Use when asked to register, sync, publish, or import a project's modules into the module registry.
 ---
 
 # Shesha Module Registry Sync
@@ -70,6 +70,24 @@ The org name and feed name are parsed independently out of `-NugetFeedUrl` and `
 
 The script resolves the actual flat-container (package base address) URL dynamically from the NuGet v3 service index at `-NugetFeedUrl` rather than hardcoding it, since Azure Artifacts' internal resource URLs aren't a fixed shape — this is the standard NuGet v3 protocol discovery flow.
 
+## Special case: shesha-io/shesha-framework
+
+This one specific repo — **https://github.com/shesha-io/shesha-framework** — is handled differently, automatically, and *only* this repo. The script detects it itself (`git config --get remote.origin.url` on `-RepoPath`, matched against `shesha-io/shesha-framework`); nothing needs to be passed to opt in, and every other repo is completely unaffected by anything in this section.
+
+When detected:
+- **Public registries, not the private Boxfusion feed.** `-NugetFeedUrl`/`-NpmRegistryUrl` are silently switched to `https://api.nuget.org/v3/index.json` and `https://registry.npmjs.org/` (unless the caller explicitly passed different values) — shesha-framework's own packages are published publicly, not to the Boxfusion Azure Artifacts feed. No PAT is required or sent for this repo.
+- **`-SourceRef` becomes mandatory.** Entities/APIs/settings/enums are extracted from a specific git ref (branch or tag) rather than whatever happens to be checked out in the working tree — the script reads file trees and content straight from git (`git ls-tree`/`git show`) and never touches the working copy. **Ask the user which release to sync** — typically `releases/0.44` or `releases/0.45` — and pass it as `-SourceRef "releases/0.44"` (or `"releases/0.45"`); don't guess or default silently. If the ref hasn't been fetched locally, `git fetch origin <ref>` first.
+- Package overview links (`nugetLocation`/`npmLocation`) point at `nuget.org`/`npmjs.com` package pages instead of an Azure DevOps feed overview.
+- Everything else — module discovery/grouping, entity/API/setting/enum extraction rules, the `-ExportOnly`/`-DescriptionsFile` description workflow (Step 4 below) — works exactly the same, just sourced from the chosen git ref instead of disk.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "{RepoPath}/.claude/skills/shesha-module-registry-sync/scripts/sync-module-registry.ps1" `
+  -RepoPath "{path to a local clone of shesha-io/shesha-framework}" `
+  -SourceRef "releases/0.44" `
+  -ExportOnly `
+  -ExportPath "{scratchpad}/module-scan.json"
+```
+
 ## Workflow
 
 ### Step 1: Gather required inputs from the user
@@ -81,6 +99,8 @@ The script resolves the actual flat-container (package base address) URL dynamic
 - `Username` / `Password` — admin credentials for that backend
 
 If the user hasn't already supplied these in the conversation, ask for them explicitly before proceeding.
+
+If `RepoPath` turns out to be a clone of `shesha-io/shesha-framework` (see [Special case](#special-case-shesha-ioshesha-framework) above), also ask **which release branch** to sync — `releases/0.44` or `releases/0.45` — before running anything; this becomes `-SourceRef`.
 
 ### Step 2: Copy the sync script into the target project
 
@@ -109,6 +129,8 @@ powershell -ExecutionPolicy Bypass -File "{RepoPath}/.claude/skills/shesha-modul
   -ExportPath "{scratchpad}/module-scan.json"
 ```
 
+Add `-SourceRef "releases/0.44"` (or whichever branch was chosen in Step 1) if `RepoPath` is `shesha-io/shesha-framework` — see [Special case](#special-case-shesha-ioshesha-framework); every other repo omits it.
+
 This writes one entry per discovered module — `moduleManifestName`, `sourceFolders`, `entities`, `apis`, `settings`, `enums` — to `module-scan.json` and exits without touching the registry.
 
 **4b. Author a real description per module** — read `module-scan.json`, then, for each module, actually open its source (starting from `sourceFolders`: the module's `*Module.cs`, its main entity/AppService files, any XML doc comments or README) and write a genuine 2–4 sentence description of **what the module does and what it's for** — its purpose and role in the system — not a restated list of entity/API names. Bad: *"Provides domain entities: NotificationTemplate. Exposes 5 CRUD endpoints and custom endpoint Send."* Good: *"Manages templated multi-channel notifications (email, SMS, push) with per-channel default settings, letting other modules trigger a notification by template rather than composing message content themselves."* Save the results as `{ "moduleManifestName": "description text", ... }` to `descriptions.json`.
@@ -124,14 +146,16 @@ powershell -ExecutionPolicy Bypass -File "{RepoPath}/.claude/skills/shesha-modul
   -DescriptionsFile "{scratchpad}/descriptions.json"
 ```
 
-`RepoPath` is always mandatory. `BackendUrl`/`Username`/`Password`/a PAT (`SHESHA_FEED_PAT` or `-FeedPat`) are mandatory for this real-sync run, but not for the `-ExportOnly` pass in 4a. `NugetFeedUrl`/`NpmRegistryUrl` are optional and default to the `nuget.shesha.dev`/`npm.shesha.dev` feeds shown in [Private feed](#private-feed) above. `-DescriptionsFile` is optional — a module with no entry in it (or if the whole step is skipped) falls back to the mechanical entities/APIs/settings/enums listing rather than failing, but that fallback should be treated as a last resort, not the goal.
+Again, add `-SourceRef "releases/0.44"` (same value used in 4a) when syncing `shesha-io/shesha-framework` — the script requires it for that repo and throws immediately if it's missing.
 
-The full run (4c) will:
+`RepoPath` is always mandatory. `BackendUrl`/`Username`/`Password` are mandatory for this real-sync run, but not for the `-ExportOnly` pass in 4a. A PAT (`SHESHA_FEED_PAT` or `-FeedPat`) is mandatory too, **except** for `shesha-io/shesha-framework`, which uses the public registries and needs none. `NugetFeedUrl`/`NpmRegistryUrl` default to the `nuget.shesha.dev`/`npm.shesha.dev` feeds shown in [Private feed](#private-feed) above, unless the repo is auto-detected as `shesha-io/shesha-framework`, in which case they default to the public nuget.org/npmjs.org registries instead (see [Special case](#special-case-shesha-ioshesha-framework)). `-DescriptionsFile` is optional — a module with no entry in it (or if the whole step is skipped) falls back to the mechanical entities/APIs/settings/enums listing rather than failing, but that fallback should be treated as a last resort, not the goal.
+
+The full run (4c) will (all of steps 1–3 and 8 read from `-SourceRef` via `git ls-tree`/`git show` instead of the filesystem when the repo is `shesha-io/shesha-framework` — see [Special case](#special-case-shesha-ioshesha-framework) — otherwise from the live working tree exactly as described):
 1. Recursively find `*.csproj` (excluding `bin`/`obj`) and group them into module names by stripping `.Domain`/`.Application`/`.Web.Core`/`.Web.Host`/`.Tests`-style suffixes, preferring each csproj's `<PackageId>`.
 2. Recursively find `package.json` (excluding `node_modules`) and match each to a module by normalized name similarity; unmatched packages become their own npm-only module.
 3. Recursively find `SKILL.md` files and match folder names to modules the same way, capturing `skillName`/`skillLocation` when found.
 4. **Drop any candidate module that isn't actually Boxfusion/Shesha's** — a module only survives if its name starts with `shesha`/`boxfusion` (case-insensitive) or its npm scope is `@shesha-io/`. This matters because a repo can vendor a large third-party codebase alongside the real modules (e.g. `pd-chat` bundles Bot Framework Composer's own `@bfc/*`/`@botframework-composer/*` packages) — without this filter every vendored package would get registered too. Dropped candidates are logged, not silently discarded.
-5. Resolve the feed's flat-container URL from the NuGet v3 service index, then for each surviving module query it for every published version, and fetch each version's `.nuspec` for its dependencies. **Within each version's dependency list, the same `shesha`/`boxfusion`/`@shesha-io/` name filter applies again** — public dependencies (`Abp`, `NHibernate`, `Microsoft.*`, etc.) are dropped, only Shesha/Boxfusion-owned dependencies are kept. Dropped counts are logged per module, not per dependency (too noisy otherwise). Each version's `publishedDate` is also resolved here, from the feed's `RegistrationsBaseUrl` resource (`catalogEntry.published` on that version's registration leaf) — a second, best-effort request per version; if the feed doesn't expose a registration resource, or a given lookup fails, `publishedDate` is left `null` rather than failing the sync.
+5. Resolve the feed's flat-container URL from the NuGet v3 service index (the private Boxfusion feed, or nuget.org for `shesha-io/shesha-framework`), then for each surviving module query it for every published version, and fetch each version's `.nuspec` for its dependencies. **Within each version's dependency list, the same `shesha`/`boxfusion`/`@shesha-io/` name filter applies again** — public dependencies (`Abp`, `NHibernate`, `Microsoft.*`, etc.) are dropped, only Shesha/Boxfusion-owned dependencies are kept. Dropped counts are logged per module, not per dependency (too noisy otherwise). Each version's `publishedDate` is also resolved here, from the feed's `RegistrationsBaseUrl` resource (`catalogEntry.published` on that version's registration leaf) — a second, best-effort request per version; if the feed doesn't expose a registration resource, or a given lookup fails, `publishedDate` is left `null` rather than failing the sync.
 6. Query the private npm registry doc for the matched package (one call returns every version + dependencies + a `time` map of version → publish timestamp), applying the same dependency filter and reading `publishedDate` straight out of that `time` map.
 7. Merge NuGet + npm versions into one `versions` array per module (one entry per distinct version number; a version present in both ecosystems gets both dependency lists appended, and keeps NuGet's `publishedDate` over npm's if both resolved one). **The merged array is then sorted newest-first by `publishedDate`** (versions with no resolvable date sort last) — this is what "groups" the versions by date: same-day releases naturally end up adjacent, and the registry/UI don't need to re-sort them.
 8. **Scan each surviving module's own source folders** (the directories containing its matched `.csproj` files - not the whole repo) for:
@@ -166,7 +190,8 @@ Report the summary table to the user, and flag any `Failed` rows with their erro
 - **Idempotent by design** — re-running against the same repo updates existing entries by exact (case-insensitive) `moduleManifestName` match rather than duplicating them. Since `GetAll` is paginated, the script pages through it (100 at a time) until a short page is returned, so this stays correct as the registry grows past one page.
 - Transient NuGet/npm failures are retried once, then that specific version is skipped with a warning — the whole run never aborts because one version's lookup failed.
 - Multi-targeted NuGet packages may list the same dependency more than once (once per target framework group) — the script doesn't de-duplicate across TFM groups; treat minor duplication in `dependencies` as a known limitation, not a bug.
-- **Never hardcode the PAT.** Use `SHESHA_FEED_PAT`; the script throws immediately if no PAT is available from either source.
-- Requires PowerShell 5+ (`Invoke-RestMethod` XML/JSON auto-parsing) and network access to `pkgs.dev.azure.com`.
+- **Never hardcode the PAT.** Use `SHESHA_FEED_PAT`; the script throws immediately if no PAT is available from either source — except for `shesha-io/shesha-framework`, which needs none.
+- **The public-registry / git-ref behavior is scoped to exactly one repo, auto-detected, never opt-in via a flag.** Only `shesha-io/shesha-framework` (matched off `git remote get-url origin`) switches to public NuGet/npm and mandatory `-SourceRef` git-ref scanning — see [Special case](#special-case-shesha-ioshesha-framework). Every other repo — including any other Boxfusion/Shesha repo — keeps using the private feed and the live working tree exactly as before; don't pass `-SourceRef` for those.
+- Requires PowerShell 5+ (`Invoke-RestMethod` XML/JSON auto-parsing), `git` on `PATH`, and network access to `pkgs.dev.azure.com` (or `api.nuget.org`/`registry.npmjs.org` for the shesha-framework case).
 
 Now run the sync based on: $ARGUMENTS
