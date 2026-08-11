@@ -1,6 +1,6 @@
 {
     "name": "shesha-utils",
-    "version": "1.9.12",
+    "version": "1.9.13",
     "description": "Version-pinned skill set for the v0.43 release of the Shesha framework. Mirrors the full historical toolkit — domain modeling, application layer, configuration items, workflow, document generation, reference numbers, notifications, integration testing, project setup, permission hardening, form cleanup, and analyzers — to support maintenance of legacy v0.43 projects.",
     "author": {
         "name": "Shesha"
