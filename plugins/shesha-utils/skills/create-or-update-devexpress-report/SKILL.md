@@ -36,8 +36,11 @@ passed as arguments — but the rule above is on you, not just the scripts.)
 Also gather (ask only if not inferable):
 
 - **MSSQL connection** — `mssql_server`, `mssql_database` (+ optional user/password). Needed by
-  generate-sql-query to validate the SQL, and to confirm result columns. (Optional if the report
-  resolves its connection server-side via the named `Default` connection.)
+  generate-sql-query to validate the SQL, and to confirm result columns. (Skippable *only* if you're
+  not validating SQL directly yourself and you're confident the target's named `Default` connection
+  resolution is working as documented — see the connection-strings caveat in
+  [reference/data-model.md](reference/data-model.md#discovering-valid-values). When in doubt, ask
+  for the real string rather than leaving a placeholder.)
 - **Report requirement** — the natural-language description of what the report should show and
   which filters the end user needs.
 - **`dxversions`** — only needed for Step 6's render check; ask for it then (from the site's own
@@ -149,6 +152,12 @@ The report `id` comes from the original create (or `GetParameters`/the viewer UR
 `--dry-run` first and show the user the planned payloads. Endpoint paths, payload shapes, and the
 create/update order are in [reference/api-access.md](reference/api-access.md). After the real run,
 capture the report `id`.
+
+**Deploying several reports in one session**: invoke `deploy-report.js` **once per report**, in
+separate tool calls, rather than looping over all of them inside one shell call. A single slow
+response against a remote/cloud-hosted target (higher latency than localhost) can time out the
+whole batch and silently drop everything after it — this has happened in practice. One call per
+report, each with a generous timeout, is slower to write but doesn't lose reports mid-batch.
 
 ### Step 6 — Verify
 

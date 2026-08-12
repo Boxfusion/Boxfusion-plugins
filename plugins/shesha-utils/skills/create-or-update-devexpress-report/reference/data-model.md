@@ -35,6 +35,21 @@ in the create payload:
 > `parameterFormPath` is stored as a **JSON string**, not an object. The viewer `JSON.parse`s it
 > into a `FormIdentifier`. Write exactly `{"name":"report-x-filters","module":"MyModule"}`.
 
+> **`category`/`reportType` can fail two different ways, and seeding a missing reference-list item
+> only fixes one of them.** Failure mode 1 — the value is rejected at request-parse time
+> (`"Error converting value 1 to type 'ReferenceListItemValueDto'"`, a 400) — is a wire-shape
+> mismatch; `deploy-report.js` now retries automatically with the value wrapped as
+> `{ "itemValue": N }` (or unwrapped, whichever wasn't tried first). Failure mode 2 — a 500 with
+> `"Error mapping types... Destination Member: Category"` *after* the request parsed fine — is a
+> genuine AutoMapper configuration bug in that deployment's `ReportingReport → ReportingReportDto`
+> mapping, confirmed to persist even after the referenced item was created via
+> `ReferenceListItem/Create` (so "the item doesn't exist yet" is not always the explanation, and
+> adding it is not always the fix). If failure mode 2 shows up, the practical workaround is to
+> **omit the field from the payload entirely** (leave it unset/null) rather than continuing to seed
+> reference data that won't resolve the mapping error — the report still deploys and renders fine,
+> just uncategorized / defaulting to the `Report` type, until someone fixes the mapping profile
+> server-side.
+
 ## ReportingReportParameter fields
 
 Entity `ReportingReportParameter`, DTO `ReportingReportParameterDto`. One row per filter:
@@ -106,6 +121,15 @@ node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' entity <
 node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' reflist <name>       # full reflist name(s)+module+items — warns on duplicates
 node <skill-dir>/scripts/discover-metadata.js <baseUrl> <user> '<pass>' category             # ReportCategory items
 ```
+> `entity <ClassName>` matches on the **short** class name only (e.g. `VerificationCampaign`), not
+> the fully-qualified C# namespace — it does an exact case-insensitive match against `className` as
+> returned by `EntityConfig/GetMainDataList`. Passing the full path (e.g.
+> `Shesha.AssetManagement.Domain.VerificationCampaigns.VerificationCampaign`) returns a false
+> `Entity "..." not found` even when the entity genuinely exists. This is the *opposite* of what a
+> report parameter's `entityTypeShortAlias` needs — that field **does** want the full namespace path
+> (see the [ReportingReportParameter fields](#reportingreportparameter-fields) table above). Don't
+> conflate the two: short name for this discovery command, full path for the actual spec field.
+
 `entity` returns each entity property's `fkColumn` (Shesha convention `<Nav>Id`) and, for
 reference-list properties, the full `referenceListName`/`referenceListModule` — feed these straight
 into the report spec. `reflist` returns **every** match with its items and warns when several exist
@@ -155,3 +179,13 @@ If a value can't be resolved on the target site, stop and ask — never guess na
 **Connection strings** — the report data source uses a **named** connection resolved server-side
 by `ConnectionStringsProvider` (it registers `Default` from `ConnectionStrings:Default`). Use
 `Default` unless the user names another connection configured in the site's `appsettings`.
+
+> SKILL.md lists the literal MSSQL connection string as "optional" to gather up front, on the
+> reasoning that server-side name resolution makes the literal baked into the XML irrelevant. Treat
+> that as true for the *deployed, working* case only — get the real literal (server + database, not
+> a guess) whenever: (a) you're validating/building the SQL directly against the database yourself
+> rather than going through the `generate-sql-query` skill, since that path needs a real,
+> connectable string regardless of what the target's `Default` resolves to; or (b) you can't yet
+> confirm named resolution is actually behaving as documented on this particular deployment. Don't
+> assume "the name matters more than the string" is a universal safety net — ask for the real
+> connection string rather than leaving a placeholder in the XML if there's any doubt.
