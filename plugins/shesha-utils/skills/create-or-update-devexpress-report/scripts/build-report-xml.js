@@ -124,8 +124,11 @@ function buildParametersAndStorage(spec) {
         `    <Item${i + 1} Ref="${ref}" Description="${desc}" AllowNull="true" MultiValue="true" Name="${xmlEscape(p.name)}" />`);
     } else {
       const valueInfo = p.default != null ? ` ValueInfo="${xmlEscape(p.default)}"` : '';
+      // AllowNull="true" is required even for scalar params: without it DevExpress treats the
+      // parameter as required and the viewer shows "Waiting for parameter values" forever, even
+      // though the SQL's own (@p IS NULL OR ...) pattern is designed to accept an empty filter.
       paramItems.push(
-        `    <Item${i + 1} Ref="${ref}" Description="${desc}"${valueInfo} Name="${xmlEscape(p.name)}" Type="#Ref-${typeRefs[p.type || 'System.String']}" />`);
+        `    <Item${i + 1} Ref="${ref}" Description="${desc}"${valueInfo} AllowNull="true" Name="${xmlEscape(p.name)}" Type="#Ref-${typeRefs[p.type || 'System.String']}" />`);
     }
   });
 
@@ -300,8 +303,53 @@ function tabularBands(spec) {
     chartsEndY = y;
   }
 
+  // Optional KPI cards (spec.kpis[]) — a row of colored XRLabel "cards" below the charts, same
+  // visual as dashboardBands' KPI row but usable on a tabular (Report) spec too. Default binding is
+  // a direct field reference (ToStr([dm.field])) — confirmed live that Sum()/aggregate functions
+  // over an unrelated single-row query silently return blank (no error, no fault), while a plain
+  // field reference on the same query renders correctly. Only wrap in an aggregate when spec.kpis[i]
+  // explicitly sets `summary` (e.g. genuinely summing a multi-row query) — that path is unverified,
+  // so it's opt-in, not the default.
+  const kpis = spec.kpis || [];
+  if (kpis.length) {
+    const kpiY = chartsEndY + 4;
+    const kpiW = 230, kpiGap = 12, kpiH = 74, capH = 20;
+    const kpiRowW = kpis.length * kpiW + (kpis.length - 1) * kpiGap;
+    const kpiStartX = Math.max(0, (totalW - kpiRowW) / 2);
+    kpis.forEach((k, i) => {
+      const x = kpiStartX + i * (kpiW + kpiGap);
+      const kdm = k.dataMember || primaryQuery;
+      const suffixLit = k.suffix ? ` + '${xmlEscape(k.suffix)}'` : '';
+      const fieldRef = `[${xmlEscape(kdm)}.${xmlEscape(k.field)}]`;
+      const valueExpr = k.summary ? `${k.summary}(${fieldRef})` : fieldRef;
+      // TextFormatString has no effect here — the Text is set via a BeforePrint expression, not a
+      // plain data binding, so DevExpress never applies TextFormatString to it (confirmed live: a
+      // "{0:C0}" TextFormatString was silently ignored and the raw 5-decimal ToStr() came through
+      // instead). Format inside the expression itself with FormatString(pattern, value).
+      const textExpr = k.format ? `FormatString('${xmlEscape(k.format).replace(/'/g, "''")}', ${valueExpr})` : `ToStr(${valueExpr})`;
+      // Two stacked labels sharing the same card background: a small caption line, then a
+      // large bold value line below it — rather than one "Caption: value" line.
+      chartBuilders.push((idx) =>
+        `        <Item${idx} Ref="${nextRef()}" ControlType="XRLabel" Name="kpiCaption_${xmlEscape(k.field)}" Text="${xmlEscape((k.caption || k.field).toUpperCase())}" SizeF="${kpiW},${capH}" LocationFloat="${x},${kpiY}" BackColor="${theme.band}" ForeColor="${theme.text}" Font="${theme.font}, 8.5pt" Padding="14,4,6,0,100" TextAlignment="BottomLeft" />`);
+      chartBuilders.push((idx) =>
+        `        <Item${idx} Ref="${nextRef()}" ControlType="XRLabel" Name="kpi_${xmlEscape(k.field)}" DataSource="#Ref-0" DataMember="${xmlEscape(kdm)}" SizeF="${kpiW},${kpiH - capH}" LocationFloat="${x},${kpiY + capH}" BackColor="${theme.band}" ForeColor="${theme.primary}" Font="${theme.font}, 22pt, style=Bold" Padding="14,0,6,10,100" TextAlignment="TopLeft">\n` +
+        `          <ExpressionBindings>\n` +
+        `            <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="${textExpr}${suffixLit}" />\n` +
+        `          </ExpressionBindings>\n` +
+        `        </Item${idx}>`);
+    });
+    chartsEndY = kpiY + kpiH + 10;
+  }
+
+  // Optional: force the PageHeader/Detail (the table) to start on a fresh page after the
+  // ReportHeader (title/charts) — an XRPageBreak control as the last ReportHeader item. Zero-size,
+  // it only affects pagination, so it doesn't consume ReportHeader height itself.
+  if (spec.pageBreakAfterHeader) {
+    chartBuilders.push((idx) => `        <Item${idx} Ref="${nextRef()}" ControlType="XRPageBreak" Name="pageBreakAfterHeader" LocationFloat="0,${chartsEndY}" />`);
+  }
+
   const header = headerControls(theme, spec, totalW, chartBuilders);
-  const headerHeight = charts.length ? chartsEndY : baseHeaderHeight;
+  const headerHeight = (charts.length || kpis.length) ? chartsEndY : baseHeaderHeight;
   const phTableRef = nextRef(), phRowRef = nextRef();
   const dTableRef = nextRef(), dRowRef = nextRef();
 
@@ -411,21 +459,38 @@ function chartControl(theme, ch, idx, x, y, w, h) {
     const sRef = nextRef(), vRef = nextRef();
     const arg = `ArgumentDataMember="${xmlEscape(dm)}.${xmlEscape(ch.argument)}"`;
     const name = xmlEscape(s.caption || s.valueField || s.field || `Series${i + 1}`);
+    // Pie/doughnut legends default to showing each point's percentage-of-whole rather than its
+    // argument (category) name — confirmed by rendering a real report. Force the legend back to
+    // the category name via both the plain LegendTextPattern string property and the
+    // LegendPointOptions object, since it's unconfirmed which one this DX version honors.
+    const legendAttr = !cv.xy ? ` LegendTextPattern="{A}"` : '';
+    const legendXml = !cv.xy ? `\n                  <LegendPointOptions Ref="${nextRef()}" PointView="Argument" />` : '';
     if (s.valueField) {
-      return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ValueDataMembersSerializable="${xmlEscape(dm)}.${xmlEscape(s.valueField)}" ArgumentScaleType="Qualitative" ValueScaleType="Numerical">\n` +
-        `                  <View Ref="${vRef}" TypeNameSerializable="${cv.view}" />\n` +
+      return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ValueDataMembersSerializable="${xmlEscape(dm)}.${xmlEscape(s.valueField)}" ArgumentScaleType="Qualitative" ValueScaleType="Numerical"${legendAttr}>\n` +
+        `                  <View Ref="${vRef}" TypeNameSerializable="${cv.view}" />${legendXml}\n` +
         `                </Item${i + 1}>`;
     }
     const qRef = nextRef();
-    return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ArgumentScaleType="Qualitative">\n` +
+    return `                <Item${i + 1} Ref="${sRef}" DataSource="#Ref-0" Name="${name}" SeriesID="${i}" ${arg} ArgumentScaleType="Qualitative"${legendAttr}>\n` +
       `                  <View Ref="${vRef}" ColorEach="true" TypeNameSerializable="${cv.view}" />\n` +
-      `                  <QualitativeSummaryOptions Ref="${qRef}" SummaryFunction="${s.summary || 'COUNT()'}" />\n` +
+      `                  <QualitativeSummaryOptions Ref="${qRef}" SummaryFunction="${s.summary || 'COUNT()'}" />${legendXml}\n` +
       `                </Item${i + 1}>`;
   }).join('\n');
   const chRef = nextRef(), chRef2 = nextRef(), dcRef = nextRef(), legRef = nextRef();
+  // ch.horizontal flips a bar/stackedBar chart from columns to horizontal bars via
+  // XYDiagram.Rotated — confirmed live against the report engine.
+  const rotatedAttr = ch.horizontal ? ' Rotated="true"' : '';
   const diagram = cv.xy
-    ? `            <Diagram Ref="${nextRef()}" TypeNameSerializable="XYDiagram">\n              <AxisX Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n              <AxisY Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n            </Diagram>\n`
+    ? `            <Diagram Ref="${nextRef()}" TypeNameSerializable="XYDiagram"${rotatedAttr}>\n              <AxisX Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n              <AxisY Ref="${nextRef()}" VisibleInPanesSerializable="-1" />\n            </Diagram>\n`
     : '';
+  // A legend is only useful when there's more than one identity to distinguish — a single
+  // series/point-set chart already says what it plots via its title, and the legend just
+  // restates that with one swatch. Default: show for multi-series charts and pie/doughnut
+  // (whose points act like series); hide for a single-series bar/line. ch.legend overrides.
+  const showLegend = ch.legend !== undefined ? ch.legend : ((ch.series || []).length > 1 || !cv.xy);
+  // DevExpress renders its own default (visible) legend even with no <Legend> element at all —
+  // confirmed live that simply omitting the tag does NOT hide it. Visible="false" is required.
+  const legendBlock = `            <Legend Ref="${legRef}" LegendID="-1" Visible="${showLegend}" />\n`;
   return `        <Item${idx} Ref="${chRef}" ControlType="XRChart" Name="chart${idx}" DataSource="#Ref-0" SizeF="${w},${h}" LocationFloat="${x},${y}" Borders="None">
           <Chart Ref="${chRef2}" PaletteName="${xmlEscape(theme.chartPalette)}">
             <DataContainer Ref="${dcRef}" DataMember="${xmlEscape(dm)}" ValidateDataMembers="true">
@@ -433,8 +498,7 @@ function chartControl(theme, ch, idx, x, y, w, h) {
 ${seriesXml}
               </SeriesSerializable>
             </DataContainer>
-${diagram}            <Legend Ref="${legRef}" LegendID="-1" />
-          </Chart>
+${diagram}${legendBlock}          </Chart>
         </Item${idx}>`;
 }
 
@@ -452,22 +516,32 @@ function dashboardBands(spec) {
   let ci = 0; const nextCi = () => ++ci;
   const controls = [];
 
-  // KPI cards across the top.
+  // KPI cards across the top — small caption line, then a large bold value line below it.
   const kpis = d.kpis || [];
+  const kpiRowH = 74, kpiCapH = 20, kpiW = 230, kpiGap = 12;
+  const kpiRowW = kpis.length * kpiW + (kpis.length - 1) * kpiGap;
+  const kpiStartX = Math.max(0, (totalW - kpiRowW) / 2);
   kpis.forEach((k, i) => {
-    const fmt = k.format ? ` TextFormatString="${xmlEscape(k.format)}"` : '';
-    const x = i * (230 + 12);
+    const x = kpiStartX + i * (kpiW + kpiGap);
     const dm = k.dataMember || primary;
+    const suffixLit = k.suffix ? ` + '${xmlEscape(k.suffix)}'` : '';
+    const fieldRef = `[${xmlEscape(dm)}.${xmlEscape(k.field)}]`;
+    const valueExpr = k.summary ? `${k.summary}(${fieldRef})` : fieldRef;
+    // See the matching note in tabularBands(): TextFormatString is ignored on an expression-bound
+    // Text, so formatting (e.g. currency with symbol, 2dp) must happen inside the expression itself.
+    const textExpr = k.format ? `FormatString('${xmlEscape(k.format).replace(/'/g, "''")}', ${valueExpr})` : `ToStr(${valueExpr})`;
     controls.push(
-      `        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="kpi_${xmlEscape(k.field)}" SizeF="230,48" LocationFloat="${x},0" BackColor="${theme.band}" ForeColor="${theme.primary}" Font="${theme.font}, 12pt, style=Bold" Padding="10,10,6,6,100" TextAlignment="MiddleLeft"${fmt}>\n` +
+      `        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="kpiCaption_${xmlEscape(k.field)}" Text="${xmlEscape((k.caption || k.field).toUpperCase())}" SizeF="230,${kpiCapH}" LocationFloat="${x},0" BackColor="${theme.band}" ForeColor="${theme.text}" Font="${theme.font}, 8.5pt" Padding="14,4,6,0,100" TextAlignment="BottomLeft" />`);
+    controls.push(
+      `        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="kpi_${xmlEscape(k.field)}" DataSource="#Ref-0" DataMember="${xmlEscape(dm)}" SizeF="230,${kpiRowH - kpiCapH}" LocationFloat="${x},${kpiCapH}" BackColor="${theme.band}" ForeColor="${theme.primary}" Font="${theme.font}, 22pt, style=Bold" Padding="14,0,6,10,100" TextAlignment="TopLeft">\n` +
       `          <ExpressionBindings>\n` +
-      `            <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="'${xmlEscape(k.caption || k.field)}: ' + ${k.summary || 'Sum'}([${xmlEscape(dm)}.${xmlEscape(k.field)}])" />\n` +
+      `            <Item1 Ref="${nextRef()}" EventName="BeforePrint" PropertyName="Text" Expression="${textExpr}${suffixLit}" />\n` +
       `          </ExpressionBindings>\n` +
       `        </Item${ci}>`);
   });
 
   // Charts stacked vertically below the KPIs.
-  let y = kpis.length ? 60 : 0;
+  let y = kpis.length ? kpiRowH + 14 : 0;
   charts.forEach((ch) => {
     if (ch.title) {
       controls.push(`        <Item${nextCi()} Ref="${nextRef()}" ControlType="XRLabel" Name="chartTitle${ci}" Text="${xmlEscape(ch.title)}" SizeF="${totalW},18" LocationFloat="0,${y}" Font="${theme.font}, 11pt, style=Bold" ForeColor="${theme.primary}" Padding="2,2,0,0,100" />`);
@@ -530,7 +604,7 @@ function buildReportXml(spec) {
   const dataMember = xmlEscape(queriesOf(spec)[0].name);
 
   return `<?xml version="1.0" encoding="utf-8"?>
-<XtraReportsLayoutSerializer SerializerVersion="${DX.serializer}" Ref="1" ControlType="${DX.xtraReport}" Name="${xmlEscape(spec.reportName || 'Report')}"${landscape} Margins="50, 50, 50, 50" PageWidth="${pageW}" PageHeight="${pageH}" Font="${theme.font}, 9.75pt" DataMember="${dataMember}" Version="${DX.version}" DataSource="#Ref-0">
+<XtraReportsLayoutSerializer SerializerVersion="${DX.serializer}" Ref="1" ControlType="${DX.xtraReport}" Name="${xmlEscape(spec.reportName || 'Report')}"${landscape} Margins="50, 50, 50, 50" PageWidth="${pageW}" PageHeight="${pageH}" Font="${theme.font}, 9.75pt" DataMember="${dataMember}" Version="${DX.version}" DataSource="#Ref-0" RequestParameters="false">
 ${parametersXml}${bands}
 ${panelXml}${componentStorage}
 ${objectStorageXml}</XtraReportsLayoutSerializer>`;
