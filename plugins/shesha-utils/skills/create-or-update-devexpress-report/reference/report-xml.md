@@ -98,9 +98,18 @@ to all three types via `resolveTheme` + shared `headerControls`/`footerControls`
 
 **To follow a supplied design**, pass a `theme` object (all keys optional; see the `spec.json`
 example). Colours accept `#RRGGBB`, `r,g,b`, `a,r,g,b`, or a named colour — the builder normalises
-to DevExpress `a,r,g,b`. `logoBase64` embeds a logo; `chartPalette` is any DevExpress palette name
-(e.g. `Nature Colors`, `Northern Lights`, `Pastel Kit`). Nothing about the theme is hardcoded to a
-project — defaults are brand-neutral and every value is overridable.
+to DevExpress `a,r,g,b`. `logoBase64` embeds a logo; `chartPalette` is any DevExpress palette name.
+Nothing about the theme is hardcoded to a project — defaults are brand-neutral and every value is
+overridable.
+
+> **`chartPalette` names are not validated before deploy.** A bad name doesn't fail at build time —
+> it fails at render time with `"error":"PaletteException occurred..."` in the DXXRDV response.
+> Confirmed **valid** by an actual successful render: `Nature Colors`, `Pastel Kit`. Confirmed
+> **invalid** the same way: `Pop`, `Dark`, `Office2007` (these look like plausible DevExpress
+> palette names but threw `PaletteException` on a real deployment). If you want variety across
+> reports and aren't certain a given name is valid on the target's DevExpress version, either stick
+> to the two confirmed-good names above or verify a new one via the DXXRDV render check
+> ([api-access.md](api-access.md#verify)) before telling the user it worked.
 
 > **Fonts must exist on the report server.** The default `Arial` renders on both Windows and
 > Linux/Skia hosts. Windows-only fonts (e.g. `Segoe UI`) throw an `ArgumentException` at document
@@ -342,5 +351,28 @@ actual report engine before changing anything below.
 - **Filter picker shows raw ids/guids instead of names, or the wrong record gets selected** → this
   is an `entityDisplayProperty`/value-shape bug, not an XML bug — see
   [filter-form.md](filter-form.md#verify-entitydisplayproperty-before-trusting-it).
+- **A column/KPI shows the wrong currency symbol (or the right symbol on one host and the wrong one
+  on another)** → don't use `.NET`'s generic currency specifier (`{0:C}` / `{0:C2}`) for a `format`
+  that must show a *specific* symbol regardless of deployment. `C` resolves against the **server's**
+  ambient culture at render time, not the caller's locale or anything in the spec — the exact same
+  report definition rendered `$` on one host and needs an explicit symbol to be portable. Use a
+  literal prefix instead, e.g. `"R{0:N2}"` for Rand, `"€{0:N2}"` for Euro — `N2` formats the number
+  (with the server's thousands/decimal separator convention, which is a much smaller cosmetic
+  difference than the symbol being wrong) and the literal character is never culture-substituted.
+  This applies to both table-column `format` and `kpis[].format`.
+- **`/DXXRDV` fails identically for every report on one specific deployment**, with an **empty
+  response body and no ABP JSON envelope at all** (every other endpoint — auth, `ReportingReport/Get`,
+  etc. — always wraps errors as `{success:false, error:{...}}`; only this one returns nothing) → this
+  is not a report/data/connection-string problem. It's the signature of a dependency-injection
+  failure resolving the WebDocumentViewer controller itself, confirmed via one real deployment's
+  `/elmah/errors` page (if ElmahCore is installed — check there first, it names the exact exception
+  in one shot): `Castle.MicroKernel.ComponentNotFoundException: No component for supporting the
+  service ...CustomWebDocumentViewerController was found`. The fix in that case was a missing
+  `services.RegisterReportingControllers()` call (from `boxfusion.devexpressreporting.Common.Extensions`)
+  in the host's `Startup.cs`/`ConfigureServices` — this registration is **not automatic** just because
+  the module is referenced. To confirm it's deployment-wide and not something about the one report
+  you're debugging: deploy a second, structurally unrelated report to the same host and check whether
+  it fails with the *exact same* empty-500 signature — if both do, stop debugging the report content
+  and go looking at the host's DI/startup wiring instead.
 - **Last-resort repair** → open the report once in the DevExpress designer and save; it rewrites the
   layout in the exact serialization the install expects.

@@ -207,51 +207,83 @@ async function deployForm(token) {
 
 // ── report: create, or update the existing DTO in place ──────────────────────
 
-function reportOverrides(parameterFormPath, formProcessed) {
+// ReportType/Category are reference-list-backed fields. Different deployments' AutoMapper DTO
+// binding disagree on the wire shape: some reject a bare int with "Error converting value 1 to
+// type 'Shesha.AutoMapper.Dto.ReferenceListItemValueDto'" and require { itemValue: N }; others
+// (confirmed on a live site's Update) reject the wrapped shape outright with a JSON parse error
+// ("Unexpected character encountered while parsing value: {. Path 'reportType'") and require the
+// bare int. There is no way to know which a given deployment wants ahead of time — try bare first
+// (the more common shape), and on the specific ref-list-shape error, retry once with the fields
+// toggled to the other shape.
+function bareRefListValue(v) { return v && typeof v === 'object' ? (v.itemValue ?? v) : v; }
+function wrappedRefListValue(v) { return v === undefined || v === null || typeof v === 'object' ? v : { itemValue: v }; }
+
+function isRefListShapeError(res, fields) {
+  const text = JSON.stringify(res.body || res.text || '');
+  if (!/ReferenceListItemValueDto|Unexpected character encountered while parsing value/i.test(text)) return false;
+  return fields.some((f) => text.includes(`'${f}'`) || text.includes(`"${f}"`));
+}
+
+// POST/PUT with automatic shape fallback for the given ref-list-backed fields.
+async function requestWithRefListFallback(method, url, token, buildBody, fields) {
+  let res = await request(method, url, { token, body: buildBody(bareRefListValue) });
+  if (!ok(res) && isRefListShapeError(res, fields)) {
+    res = await request(method, url, { token, body: buildBody(wrappedRefListValue) });
+  }
+  return res;
+}
+
+function reportOverrides(parameterFormPath, formProcessed, shape) {
   const o = { reportDefinitionXml: reportSpec.reportDefinitionXml };
   const copy = ['displayName', 'description', 'reportType', 'category', 'connectionStringName', 'orderIndex', 'showInReportsMenu'];
   for (const k of copy) if (reportSpec[k] !== undefined) o[k] = reportSpec[k];
+  if (o.reportType !== undefined) o.reportType = shape(o.reportType);
+  if (o.category !== undefined) o.category = shape(o.category);
   if (formProcessed) { o.parameterFormPath = parameterFormPath; o.useCustomParameters = !!parameterFormPath; }
   return o;
 }
 
 async function createReport(token, parameterFormPath, formProcessed) {
-  const payload = {
+  const buildPayload = (shape) => ({
     displayName: reportSpec.displayName,
     description: reportSpec.description || '',
-    reportType: reportSpec.reportType ?? 1,
-    category: reportSpec.category,
+    reportType: shape(reportSpec.reportType ?? 1),
+    category: shape(reportSpec.category),
     connectionStringName: reportSpec.connectionStringName || 'Default',
     orderIndex: reportSpec.orderIndex ?? 0,
     showInReportsMenu: reportSpec.showInReportsMenu ?? true,
     reportDefinitionXml: reportSpec.reportDefinitionXml,
     useCustomParameters: formProcessed ? !!parameterFormPath : false,
     parameterFormPath: formProcessed ? parameterFormPath : null,
-  };
+  });
   if (flags.dryRun) {
+    const payload = buildPayload(bareRefListValue);
     console.log('\n[dry-run] Create report:');
     console.log(JSON.stringify({ ...payload, reportDefinitionXml: `<${payload.reportDefinitionXml.length} chars>` }, null, 2));
     return 'dry-run-report-id';
   }
-  const res = await request('POST', `${baseUrl}/api/services/${moduleRoute}/ReportingReport/Create`, { token, body: payload });
+  const url = `${baseUrl}/api/services/${moduleRoute}/ReportingReport/Create`;
+  const res = await requestWithRefListFallback('POST', url, token, buildPayload, ['reportType', 'category']);
   if (!ok(res)) fail('ReportingReport/Create failed', res);
   const id = idOf(res);
   if (!id) fail('No report id returned from Create', res);
-  console.log(`✓ Report created: ${payload.displayName} (id ${id})`);
+  console.log(`✓ Report created: ${reportSpec.displayName} (id ${id})`);
   return id;
 }
 
 async function updateReport(token, parameterFormPath, formProcessed) {
   if (flags.dryRun) {
-    console.log(`\n[dry-run] Update report ${reportId} with:`, Object.keys(reportOverrides(parameterFormPath, formProcessed)).join(', '));
+    console.log(`\n[dry-run] Update report ${reportId} with:`, Object.keys(reportOverrides(parameterFormPath, formProcessed, bareRefListValue)).join(', '));
     return reportId;
   }
   const getRes = await request('GET', `${baseUrl}/api/services/${moduleRoute}/ReportingReport/Get?id=${reportId}`, { token });
   if (!ok(getRes) || !getRes.body?.result) fail(`ReportingReport/Get failed for id ${reportId} (does it exist?)`, getRes);
-  const merged = { ...getRes.body.result, ...reportOverrides(parameterFormPath, formProcessed) };
-  const res = await request('PUT', `${baseUrl}/api/services/${moduleRoute}/ReportingReport/Update`, { token, body: merged });
+  const existing = getRes.body.result;
+  const buildBody = (shape) => ({ ...existing, ...reportOverrides(parameterFormPath, formProcessed, shape) });
+  const url = `${baseUrl}/api/services/${moduleRoute}/ReportingReport/Update`;
+  const res = await requestWithRefListFallback('PUT', url, token, buildBody, ['reportType', 'category']);
   if (!ok(res)) fail('ReportingReport/Update failed', res);
-  console.log(`✓ Report updated in place: ${merged.displayName} (id ${reportId})`);
+  console.log(`✓ Report updated in place: ${reportSpec.displayName} (id ${reportId})`);
   return reportId;
 }
 

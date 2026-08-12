@@ -115,7 +115,13 @@ Authorization: Bearer <token>
 }
 ```
 `type` is a reference-list value — send `{ "itemValue": <n> }`. If the CRUD service rejects that
-shape, retry with a bare `"type": <n>`.
+shape, retry with a bare `"type": <n>`. The same ambiguity is confirmed on `ReportingReport`'s own
+`reportType`/`category` fields — different deployments want opposite shapes there too (one rejects
+bare with a 400 type-conversion error, another rejects wrapped with a JSON parse error) —
+`deploy-report.js` handles that pair adaptively (tries one shape, retries with the other on the
+specific error signature) rather than hardcoding either. This parameter `type` field isn't wired
+through the same adaptive helper yet; if you hit the same wire-shape failure here, apply the
+identical retry-with-the-other-shape approach by hand.
 
 ## Updating an existing report (in place)
 
