@@ -8,9 +8,9 @@
   Path to the repository to scan.
 
 .PARAMETER BackendUrl
-  Base URL of the Shesha.ModuleRegistry backend to sync into. No default - the
-  caller must always supply the target environment explicitly. Not required
-  when -ExportOnly is set.
+  Base URL of the Shesha.ModuleRegistry backend to sync into. Defaults to the
+  shesha-moduleregisty-api-test environment; pass -BackendUrl to target a
+  different one.
 
 .PARAMETER Username
 .PARAMETER Password
@@ -60,7 +60,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$RepoPath,
 
-    [string]$BackendUrl,
+    [string]$BackendUrl = "https://shesha-moduleregisty-api-test.shesha.app/",
     [string]$Username,
     [string]$Password,
 
@@ -792,10 +792,48 @@ if ($NpmRegistryUrl -match 'pkgs\.dev\.azure\.com/([^/]+)/_packaging/([^/]+)/') 
 }
 
 # ---------------------------------------------------------------------------
-# Step 2: Look up published packages on NuGet + npm
+# Step 2: Authenticate against the Module Registry backend, and load its
+# existing modules - done up front, before scanning any module, so each
+# module can be upserted immediately after it's processed (see Step 3) rather
+# than batching every Insert/Update until the very end.
 # ---------------------------------------------------------------------------
 
-$payloads = @()
+Write-Host ""
+Write-Host "Authenticating against $BackendUrl ..." -ForegroundColor Cyan
+
+$authBody = @{ userNameOrEmailAddress = $Username; password = $Password } | ConvertTo-Json
+$authResponse = Invoke-RestMethod -Uri "$BackendUrl/api/TokenAuth/Authenticate" -Method Post -Body $authBody -ContentType "application/json"
+$token = $authResponse.result.accessToken
+if (-not $token) {
+    throw "Authentication failed - no access token returned."
+}
+$headers = @{ Authorization = "Bearer $token" }
+
+$existingByName = @{}
+$existingPageSize = 100
+$existingSkip = 0
+do {
+    $existing = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/GetAll?skipCount=$existingSkip&maxResultCount=$existingPageSize" -Method Get -Headers $headers
+    $existingItems = @()
+    if ($existing.success -and $existing.result -and $existing.result.items) {
+        $existingItems = $existing.result.items
+        foreach ($m in $existingItems) {
+            $existingByName[$m.moduleManifestName.ToLowerInvariant()] = $m.id
+        }
+    }
+    $existingSkip += $existingPageSize
+} while ($existingItems.Count -eq $existingPageSize)
+
+# ---------------------------------------------------------------------------
+# Step 3: For each module, look up its published NuGet/npm packages, scan its
+# source, and upsert it into the registry immediately - not after every
+# module has been processed. If the job is killed mid-run, every module
+# synced so far is already safely in the registry; re-running just re-syncs
+# from the top, which is safe (never duplicates) since Insert-vs-Update is
+# decided by an exact moduleManifestName match.
+# ---------------------------------------------------------------------------
+
+$summary = @()
 
 foreach ($moduleName in $modules.Keys) {
     $info = $modules[$moduleName]
@@ -983,7 +1021,7 @@ foreach ($moduleName in $modules.Keys) {
         }
     }
 
-    $payloads += [ordered]@{
+    $payload = [ordered]@{
         moduleManifestName = $moduleName
         description        = $description
         limitations        = $null
@@ -998,46 +1036,10 @@ foreach ($moduleName in $modules.Keys) {
         settings           = $sourceCode.Settings
         enums              = $sourceCode.Enums
     }
-}
 
-# ---------------------------------------------------------------------------
-# Step 3: Authenticate against the Module Registry backend
-# ---------------------------------------------------------------------------
-
-Write-Host ""
-Write-Host "Authenticating against $BackendUrl ..." -ForegroundColor Cyan
-
-$authBody = @{ userNameOrEmailAddress = $Username; password = $Password } | ConvertTo-Json
-$authResponse = Invoke-RestMethod -Uri "$BackendUrl/api/TokenAuth/Authenticate" -Method Post -Body $authBody -ContentType "application/json"
-$token = $authResponse.result.accessToken
-if (-not $token) {
-    throw "Authentication failed - no access token returned."
-}
-$headers = @{ Authorization = "Bearer $token" }
-
-# ---------------------------------------------------------------------------
-# Step 4: Load existing modules and upsert
-# ---------------------------------------------------------------------------
-
-$existingByName = @{}
-$existingPageSize = 100
-$existingSkip = 0
-do {
-    $existing = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/GetAll?skipCount=$existingSkip&maxResultCount=$existingPageSize" -Method Get -Headers $headers
-    $existingItems = @()
-    if ($existing.success -and $existing.result -and $existing.result.items) {
-        $existingItems = $existing.result.items
-        foreach ($m in $existingItems) {
-            $existingByName[$m.moduleManifestName.ToLowerInvariant()] = $m.id
-        }
-    }
-    $existingSkip += $existingPageSize
-} while ($existingItems.Count -eq $existingPageSize)
-
-$summary = @()
-
-foreach ($payload in $payloads) {
-    $key = $payload.moduleManifestName.ToLowerInvariant()
+    # --- Upsert this module right now, rather than collecting it for a batch at the end - so a
+    # kill mid-run loses at most the module currently in flight, never any module already synced.
+    $key = $moduleName.ToLowerInvariant()
     $bodyJson = $payload | ConvertTo-Json -Depth 10
 
     try {
@@ -1054,11 +1056,14 @@ foreach ($payload in $payloads) {
         }
 
         if ($response.success) {
+            Write-Host "  Synced ($action)" -ForegroundColor Green
             $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = $action; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = "" }
         } else {
+            Write-Host "  Sync failed: $($response.error.message)" -ForegroundColor Red
             $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = $response.error.message }
         }
     } catch {
+        Write-Host "  Sync failed: $($_.Exception.Message)" -ForegroundColor Red
         $summary += [ordered]@{ Module = $payload.moduleManifestName; Action = "Failed"; Versions = $payload.versions.Count; Entities = $payload.entities.Count; Apis = $payload.apis.Count; Settings = $payload.settings.Count; Enums = $payload.enums.Count; Detail = $_.Exception.Message }
     }
 }
