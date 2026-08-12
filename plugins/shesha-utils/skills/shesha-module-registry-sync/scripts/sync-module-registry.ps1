@@ -871,12 +871,20 @@ foreach ($moduleName in $modules.Keys) {
             $versionLower = $version.ToLowerInvariant()
             $nuspecUrl = "$flatContainerBase/$idLower/$versionLower/$idLower.nuspec"
             try {
-                $nuspecRaw = Invoke-RestMethod -Uri $nuspecUrl -Method Get -Headers $feedHeaders -ErrorAction Stop
-                # The feed may serve this without a charset, so PowerShell can mis-decode the
-                # leading UTF-8 BOM into garbage characters that break XML parsing. Strip
-                # anything before the first '<' regardless of what it decoded to.
-                $nuspecRaw = [string]$nuspecRaw -replace '^[^<]*', ''
-                [xml]$nuspecXml = $nuspecRaw
+                $nuspecResponse = Invoke-RestMethod -Uri $nuspecUrl -Method Get -Headers $feedHeaders -ErrorAction Stop
+                if ($nuspecResponse -is [System.Xml.XmlDocument]) {
+                    # nuget.org (and possibly other feeds) serve .nuspec as Content-Type: text/xml,
+                    # which Invoke-RestMethod auto-parses into an XmlDocument rather than returning
+                    # the raw string - use it directly rather than running it through ToString(),
+                    # which would yield the literal string "System.Xml.XmlDocument", not XML.
+                    $nuspecXml = $nuspecResponse
+                } else {
+                    # The feed may serve this without a charset, so PowerShell can mis-decode the
+                    # leading UTF-8 BOM into garbage characters that break XML parsing. Strip
+                    # anything before the first '<' regardless of what it decoded to.
+                    $nuspecRaw = [string]$nuspecResponse -replace '^[^<]*', ''
+                    [xml]$nuspecXml = $nuspecRaw
+                }
             } catch {
                 Write-Warning "  Could not fetch/parse nuspec for $resolvedNugetId $version, skipping this version's dependencies"
                 if (-not $versions.ContainsKey($version)) {
