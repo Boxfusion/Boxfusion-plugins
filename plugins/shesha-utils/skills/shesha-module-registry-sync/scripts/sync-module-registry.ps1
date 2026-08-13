@@ -566,7 +566,12 @@ function Read-SourceFile {
         return Get-GitRefFileContent -RepoPath $RepoPath -SourceRef $SourceRef -RelativePath $Path
     }
     try {
-        return Get-Content -Path $Path -Raw -ErrorAction Stop
+        # -Encoding UTF8 is required: Get-Content's default in Windows PowerShell 5.1 is the
+        # system codepage, not UTF-8, so any BOM-less UTF-8 source file (the common default for
+        # .cs/.json in modern tooling) with non-ASCII characters - accented names, em-dashes,
+        # curly quotes in XML doc comments or string literals - gets silently corrupted into
+        # mojibake without this, which then gets sent to the registry as garbled text.
+        return Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop
     } catch {
         return $null
     }
@@ -745,7 +750,11 @@ if ($DescriptionsFile) {
     if (-not (Test-Path $DescriptionsFile)) {
         throw "-DescriptionsFile '$DescriptionsFile' not found."
     }
-    $rawDescriptions = Get-Content -Path $DescriptionsFile -Raw | ConvertFrom-Json
+    # -Encoding UTF8 is required here too - see the comment in Read-SourceFile. Authored
+    # descriptions are free text (Step 4b) and very likely to contain an em-dash, a curly quote,
+    # or similar; without this, Get-Content's system-codepage default corrupts them into mojibake
+    # before they're ever sent to the registry.
+    $rawDescriptions = Get-Content -Path $DescriptionsFile -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($prop in $rawDescriptions.PSObject.Properties) {
         $descriptionOverrides[$prop.Name] = $prop.Value
     }
@@ -802,7 +811,11 @@ Write-Host ""
 Write-Host "Authenticating against $BackendUrl ..." -ForegroundColor Cyan
 
 $authBody = @{ userNameOrEmailAddress = $Username; password = $Password } | ConvertTo-Json
-$authResponse = Invoke-RestMethod -Uri "$BackendUrl/api/TokenAuth/Authenticate" -Method Post -Body $authBody -ContentType "application/json"
+# Invoke-RestMethod -Body <string> on Windows PowerShell 5.1 encodes the body using the system
+# codepage's "best fit" table, which silently downgrades non-ASCII characters (an em-dash becomes
+# a plain hyphen, smart quotes become straight ones) rather than sending real UTF-8 - passing an
+# explicit UTF-8 byte array (with a matching charset on the header) avoids that entirely.
+$authResponse = Invoke-RestMethod -Uri "$BackendUrl/api/TokenAuth/Authenticate" -Method Post -Body ([System.Text.Encoding]::UTF8.GetBytes($authBody)) -ContentType "application/json; charset=utf-8"
 $token = $authResponse.result.accessToken
 if (-not $token) {
     throw "Authentication failed - no access token returned."
@@ -1056,10 +1069,14 @@ foreach ($moduleName in $modules.Keys) {
             foreach ($k in $payload.Keys) { $updatePayload[$k] = $payload[$k] }
             $updatePayload["id"] = $existingByName[$key]
             $updateJson = $updatePayload | ConvertTo-Json -Depth 10
-            $response = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/Update" -Method Put -Headers $headers -Body $updateJson -ContentType "application/json"
+            # See the comment on the Authenticate call above - encoding to UTF-8 bytes explicitly
+            # avoids Invoke-RestMethod's lossy system-codepage "best fit" string encoding, which
+            # would otherwise silently mangle any non-ASCII text (e.g. an authored description
+            # containing an em-dash or curly quotes) before it reaches the registry.
+            $response = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/Update" -Method Put -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($updateJson)) -ContentType "application/json; charset=utf-8"
             $action = "Updated"
         } else {
-            $response = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/Insert" -Method Post -Headers $headers -Body $bodyJson -ContentType "application/json"
+            $response = Invoke-RestMethod -Uri "$BackendUrl/api/services/ModuleRegistry/ModuleInfoSearch/Insert" -Method Post -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($bodyJson)) -ContentType "application/json; charset=utf-8"
             $action = "Created"
         }
 
