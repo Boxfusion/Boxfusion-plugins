@@ -26,6 +26,15 @@ Configuration (all via environment variables — installed into the Claude Code
     CLAUDE_LOGGER_DEBUG_LOG     Optional path to a local file; when set, each
                                 event's name and forward outcome (HTTP status or
                                 error) is appended for troubleshooting.
+
+Test-harness linkage (optional; set by the SAA test harness per agent /
+evaluator run so each ClaudeLog row can be tied to the run that produced it):
+
+    CLAUDE_LOGGER_TEST_RUN_ID     -> test_run_id
+    CLAUDE_LOGGER_TEST_CASE_ID    -> test_case_id
+    CLAUDE_LOGGER_TEST_CASE_NAME  -> test_case_name
+    CLAUDE_LOGGER_ITERATION       -> iteration (int)
+    CLAUDE_LOGGER_HARNESS_ROLE    -> harness_role ("agent" / "evaluator")
 """
 
 from __future__ import annotations
@@ -262,6 +271,32 @@ def _read_last_turn(transcript_path: str) -> dict[str, Any]:
     return result
 
 
+_HARNESS_TAG_ENV = {
+    "test_run_id": "CLAUDE_LOGGER_TEST_RUN_ID",
+    "test_case_id": "CLAUDE_LOGGER_TEST_CASE_ID",
+    "test_case_name": "CLAUDE_LOGGER_TEST_CASE_NAME",
+    "iteration": "CLAUDE_LOGGER_ITERATION",
+    "harness_role": "CLAUDE_LOGGER_HARNESS_ROLE",
+}
+
+
+def _harness_tags() -> dict[str, Any]:
+    """Test-harness linkage tags from the environment (empty outside the harness)."""
+    tags: dict[str, Any] = {}
+    for field, var in _HARNESS_TAG_ENV.items():
+        value = (os.environ.get(var) or "").strip()
+        if not value:
+            continue
+        if field == "iteration":
+            try:
+                tags[field] = int(value)
+            except ValueError:
+                continue
+        else:
+            tags[field] = value
+    return tags
+
+
 def build_log_record(
     payload: dict[str, Any],
     *,
@@ -275,6 +310,8 @@ def build_log_record(
         **payload,
     }
     record.setdefault("cwd", payload.get("cwd"))
+    for key, value in _harness_tags().items():
+        record.setdefault(key, value)
     # Precedence: a user supplied in the payload (rare) → the explicit
     # CLAUDE_LOGGER_USER override → the OS user running Claude Code. So every
     # record is tagged with whoever is prompting, even with no configuration.
