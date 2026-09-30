@@ -13,11 +13,13 @@ Discovers everything from the project itself -- no hardcoded package lists:
 Usage:
     python resolve_versions.py --repo <repo-root> --target 0.43.37
     python resolve_versions.py --repo . --target 0.43.37 --json plan.json
+    python resolve_versions.py --repo . --target 0.43.37 --sln MyApp.sln
 
 Requires SHESHA_FEED_PAT (Azure DevOps PAT, Packaging:Read).
 """
 import argparse
 import base64
+import codecs
 import json
 import os
 import re
@@ -81,6 +83,24 @@ def is_release(v):
     return "-" not in v and not v.startswith("0.0.")
 
 
+def same_line(a, b):
+    """True when two versions share major.minor (the Shesha release line, e.g. 0.43)."""
+    return vkey(a)[:2] == vkey(b)[:2]
+
+
+def read_text(path):
+    """Read a project file whatever its encoding.
+
+    Most files are UTF-8 (with or without a BOM), but some repos save
+    Directory.Build.props / .csproj files as UTF-16 LE. Decoding those as UTF-8
+    yields no properties at all, which silently empties the plan.
+    """
+    raw = open(path, "rb").read()
+    if raw[:2] in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig")
+
+
 # --------------------------------------------------------------------------- #
 # Project discovery
 # --------------------------------------------------------------------------- #
@@ -101,22 +121,39 @@ def read_props(backend):
     authoritative list of version properties comes from what the .csproj files
     actually reference via $(...), not from the naming convention.
     """
-    text = open(os.path.join(backend, "Directory.Build.props"), encoding="utf-8-sig").read()
+    text = read_text(os.path.join(backend, "Directory.Build.props"))
     return {m.group(1): m.group(2).strip()
             for m in re.finditer(r"<([A-Za-z_][\w.-]*)>([^<>]+)</\1>", text)}
 
 
-def sln_projects(backend):
+def pick_sln(backend, requested=None):
+    """Choose the solution to resolve against.
+
+    Repos often carry a *.debug.sln (or *.Debug.sln) beside the real one, which
+    adds locally linked module projects. Taking whichever .sln the directory
+    listing returns first silently resolves against the wrong project set, so
+    prefer a non-debug solution and report the choice when there is more than one.
+    """
+    slns = sorted(f for f in os.listdir(backend) if f.endswith(".sln"))
+    if not slns:
+        sys.exit(f"ERROR: no .sln in {backend}")
+    if requested:
+        name = os.path.basename(requested)
+        if name not in slns:
+            sys.exit(f"ERROR: --sln {name} not found in {backend} (have: {', '.join(slns)})")
+        return name, slns
+    slns_ordered = sorted(slns, key=lambda f: ("debug" in f.lower(), f.lower()))
+    return slns_ordered[0], slns
+
+
+def sln_projects(backend, sln_name):
     """Absolute paths of every .csproj referenced by the solution.
 
     Projects NOT in the .sln are deliberately ignored -- a repo can contain
     stray/backup .csproj files that reference obsolete versions.
     """
-    slns = [f for f in os.listdir(backend) if f.endswith(".sln")]
-    if not slns:
-        sys.exit(f"ERROR: no .sln in {backend}")
-    out, sln = [], os.path.join(backend, slns[0])
-    for m in re.finditer(r'"([^"]+\.csproj)"', open(sln, encoding="utf-8-sig").read()):
+    out, sln = [], os.path.join(backend, sln_name)
+    for m in re.finditer(r'"([^"]+\.csproj)"', read_text(sln)):
         p = os.path.normpath(os.path.join(backend, m.group(1).replace("\\", os.sep)))
         if os.path.isfile(p):
             out.append(p)
@@ -127,12 +164,15 @@ def scan_packages(csprojs):
     """Return (property -> {package ids}, [hardcoded Shesha/Boxfusion refs])."""
     by_prop, hardcoded = {}, []
     for p in csprojs:
-        text = open(p, encoding="utf-8-sig").read()
+        text = read_text(p)
         for pid, ver in re.findall(
                 r'<PackageReference\s+(?:Include|Update)="([^"]+)"\s+Version="([^"]+)"', text):
             if not re.match(r"^(shesha|boxfusion)\.", pid, re.I):
                 continue
-            m = re.match(r"^\$\((\w+)\)$", ver)
+            # Tolerate stray whitespace inside the attribute, e.g.
+            # Version="$(SheshaEnterpriseVersion) " -- MSBuild and NuGet accept it,
+            # so it is still property-managed, not a hardcoded version.
+            m = re.match(r"^\$\((\w+)\)$", ver.strip())
             if m:
                 by_prop.setdefault(m.group(1), set()).add(pid)
             else:
@@ -217,19 +257,43 @@ def nuget_versions(pkg):
     return []
 
 
-def shesha_floor(pkg, ver):
+_FLOOR_CACHE = {}
+
+
+def shesha_floor(pkg, ver, depth=3):
     """The Shesha version this build was compiled against, per its .nuspec.
 
     NuGet dependency versions are floors (>=), not pins -- so this is 'built
     against', not 'requires exactly'.
+
+    Some modules declare no Shesha core dependency of their own and depend on
+    another module instead -- e.g. Shesha.SignalR -> boxfusion.chat.Domain, or
+    Shesha.MassTransit -> Shesha.Enterprise.Domain. For those, follow their
+    Shesha/Boxfusion dependencies (at the versions they declare) until one of
+    them names a Shesha core version. Without this, such modules always come
+    back 'unresolved'.
     """
+    key = (pkg.lower(), ver.lower())
+    if key in _FLOOR_CACHE:
+        return _FLOOR_CACHE[key]
     try:
         xml = fetch(f"{FLAT2}/{pkg.lower()}/{ver.lower()}/{pkg.lower()}.nuspec", as_json=False)
-    except urllib.error.HTTPError as e:
+    except urllib.error.HTTPError:
+        _FLOOR_CACHE[key] = None
         return None
     deps = dict(re.findall(r'<dependency id="([^"]+)" version="\[?([^",\]]+)', xml))
-    core = [v for k, v in deps.items() if k.lower() in SHESHA_CORE_IDS]
-    return sorted(core, key=vkey)[-1] if core else None
+    core = [v.strip() for k, v in deps.items() if k.lower() in SHESHA_CORE_IDS]
+    if core:
+        result = sorted(core, key=vkey)[-1]
+    elif depth > 0:
+        inherited = [shesha_floor(k, v.strip(), depth - 1) for k, v in deps.items()
+                     if re.match(r"^(shesha|boxfusion)\.", k, re.I)]
+        inherited = [f for f in inherited if f]
+        result = sorted(inherited, key=vkey)[-1] if inherited else None
+    else:
+        result = None
+    _FLOOR_CACHE[key] = result
+    return result
 
 
 def npm_meta(pkg):
@@ -318,22 +382,34 @@ def resolve_property(pkgs, target, depth):
         notes.append("no single version is published by every package in this group")
         return None, "unresolved", notes
 
-    fallback = None
+    fallback, saw_opinion, saw_newer = None, False, False
     for v in common[:depth]:
         opinions = [floors[(p, v)] for p in pkgs if floors.get((p, v))]
         if not opinions:
             continue
+        saw_opinion = True
         if any(vkey(f) > vkey(target) for f in opinions):
+            saw_newer = True
             continue                       # needs a newer Shesha than the target
         if target in opinions:
             return v, "exact", notes
-        if fallback is None:
+        # A compat fallback must stay on the target's release line: a build
+        # compiled against 0.41.x is not a sensible pick for a 0.43.x target,
+        # and taking it would silently move the module back a whole line.
+        if fallback is None and all(same_line(f, target) for f in opinions):
             fallback = v
     if fallback:
         notes.append("no build declares the target Shesha version exactly; using "
                      "the newest build with a lower floor -- confirm at build time")
         return fallback, "compat", notes
-    notes.append("every recent build requires a newer Shesha than the target")
+    if not saw_opinion:
+        notes.append("no recent build declares a Shesha version, even through the "
+                     "modules it depends on -- resolve by hand")
+    elif saw_newer:
+        notes.append("every recent build requires a newer Shesha than the target")
+    else:
+        notes.append("recent builds are all on an older Shesha release line than the "
+                     "target -- keep the current version or check for a newer release")
     return None, "unresolved", notes
 
 
@@ -344,17 +420,23 @@ def main():
     ap.add_argument("--target", required=True, help="target Shesha version, e.g. 0.43.37")
     ap.add_argument("--depth", type=int, default=8, help="candidate builds to inspect per package")
     ap.add_argument("--json", help="write the plan to this file")
+    ap.add_argument("--sln", help="solution file inside the backend folder "
+                                  "(default: the first non-debug .sln)")
     a = ap.parse_args()
     AUTH = auth_header()
 
     repo = os.path.abspath(a.repo)
     backend = find_backend(repo)
     props = read_props(backend)
-    sln, csprojs = sln_projects(backend)
+    sln_name, all_slns = pick_sln(backend, a.sln)
+    sln, csprojs = sln_projects(backend, sln_name)
     by_prop, hardcoded = scan_packages(csprojs)
 
     print(f"repo     : {repo}")
     print(f"solution : {os.path.basename(sln)} ({len(csprojs)} projects)")
+    if len(all_slns) > 1:
+        others = ", ".join(s for s in all_slns if s != sln_name)
+        print(f"           (also present: {others} -- pass --sln to use another)")
     print(f"target   : Shesha {a.target}\n")
 
     plan, slug_to_version = {}, {}
@@ -365,6 +447,10 @@ def main():
             chosen, kind, notes = a.target, "target", []
         else:
             chosen, kind, notes = resolve_property(pkgs, a.target, a.depth)
+        cur_val = props.get(prop) or ""
+        if cur_val and not is_release(cur_val):
+            notes.append(f"current value {cur_val} is a CI/prerelease build -- confirm "
+                         "the replacement with the user rather than assuming it")
         plan[prop] = {"current": props.get(prop), "resolved": chosen, "basis": kind,
                       "packages": sorted(pkgs), "notes": notes}
         for p in pkgs:
@@ -386,7 +472,11 @@ def main():
 
     fe, npm_cache = [], {}
     for mf, sect, pkg, cur in scan_npm(find_frontend_manifests(repo)):
-        want = slug_to_version.get(pkg.split("/", 1)[1].replace("-", ""))
+        npm_slug = pkg.split("/", 1)[1].replace("-", "")
+        # Product modules are often published to npm with a "pd-" prefix that the
+        # NuGet id does not carry: @shesha-io/pd-travelbooking <-> Shesha.TravelBooking.*
+        want = slug_to_version.get(npm_slug) or (
+            slug_to_version.get(npm_slug[2:]) if npm_slug.startswith("pd") else None)
         basis = "mirrors backend"
         if not want:
             # Not every backend module has a frontend package, and not every

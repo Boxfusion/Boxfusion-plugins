@@ -5,6 +5,11 @@
 - [npm install returns 401](#npm-install-returns-401)
 - [A property resolves to compat instead of exact](#a-property-resolves-to-compat-instead-of-exact)
 - [A package version exists on NuGet but not npm](#a-package-version-exists-on-nuget-but-not-npm)
+- [NU1605 from a hardcoded third-party pin](#nu1605-from-a-hardcoded-third-party-pin)
+- [Build errors after a large module jump](#build-errors-after-a-large-module-jump)
+- [npm install fails with ERR_INVALID_ARG_TYPE](#npm-install-fails-with-err_invalid_arg_type)
+- [The committed lockfile does not match package.json](#the-committed-lockfile-does-not-match-packagejson)
+- [The build modifies tracked XML doc files](#the-build-modifies-tracked-xml-doc-files)
 
 ## Restore cannot authenticate to the private feed
 
@@ -134,3 +139,81 @@ steps, so one can lag. The resolver flags this as `NOT ON NPM FEED`.
 Do not substitute a different npm version to make it install — that breaks the
 mirror invariant. Report it and let the user decide whether to wait for the
 publish or pick a different target Shesha version.
+
+## NU1605 from a hardcoded third-party pin
+
+**Symptom:** restore fails with `NU1605 ... Detected package downgrade:
+SkiaSharp.NativeAssets.Linux from 3.119.0 to 3.116.1`, rooted at a project that
+*is* in the solution.
+
+**Cause.** A module moved a third-party dependency forward (DevExpressReporting
+2.6.27 requires `SkiaSharp.NativeAssets.Linux >= 3.119.0`), but a project pins
+that package directly with a hardcoded `Version`. These pins usually exist only
+to match the module, so they must follow it.
+
+**Fix.** Read the module's `.nuspec` for the version it now requires and bump
+the hardcoded pins to that version. This is the one case where editing a
+`.csproj` version is correct: the pin is not managed by any property. Grep every
+project for the package id, not only the one named first in the error.
+
+## Build errors after a large module jump
+
+Moving a module across several releases (or off a CI build onto a release)
+can surface API changes, typically:
+
+- **a renamed entity** -- e.g. Dep's `Contact` became `DirectoryContact`, so
+  `ShaSpecification<Contact>` no longer compiles
+- **a changed base-class constructor** -- e.g. ServiceManagement's
+  `CaseViewPermissionExpressionBuilder` gained an
+  `IRepository<OrganisationPerson, Guid>` parameter
+
+The module's source is usually in another local repo. Find the change there
+(`git log -S "<OldName>"`, or read the current class), confirm the replacement
+has the same shape, and make the minimal fix in the consuming project. For a
+constructor change, add the parameter and pass it through; check nothing news
+the class up by hand. For an entity rename, check the module shipped a
+migration that renames the table and discriminator, and that the consuming
+project has no other code or configuration referencing the old name. Report
+every such fix in the PR description.
+
+## npm install fails with ERR_INVALID_ARG_TYPE
+
+**Symptom:** `npm error The "from" argument must be of type string. Received
+undefined`, with `rollbackMoveBackRetiredUnchanged` in the stack trace of the
+debug log. Dependency resolution in the log looks correct.
+
+**Cause.** An earlier file operation during reify failed and npm crashed while
+rolling it back, hiding the original error. It reproduces on every retry when
+the existing `node_modules` cannot be reconciled.
+
+**Fix.** Do a clean install -- but with care, because npm workspace packages are
+linked into `node_modules` as junctions/symlinks pointing at real source:
+
+1. List links first: `find node_modules -maxdepth 2 -type l` (or
+   `dir /AL /S /B node_modules`).
+2. Remove each link on its own with `rmdir` (removes the link, not its target)
+   and confirm the workspace source is intact.
+3. Only then delete `node_modules` and run `npm install`. Keep `package-lock.json`.
+
+Get the user's confirmation before deleting `node_modules`.
+
+## The committed lockfile does not match package.json
+
+Common after earlier upgrades that edited `package.json` without re-running
+`npm install`: the manifest says `5.1.7` while `package-lock.json` still pins
+`5.1.2`, so `npm ci` in the pipeline installs the old version. The regenerated
+lockfile fixes it. Say so in the PR, because the diff will show larger version
+jumps than the manifest change suggests.
+
+Large lockfile shrinks are usually explainable -- compare package entries
+before and after rather than reading the line diff. Seen so far: a nested
+duplicate of `@shesha-io/reactjs` in a workspace collapsing into the root copy,
+and a module dropping a heavy dependency (chat-service leaving
+`botframework-webchat`).
+
+## The build modifies tracked XML doc files
+
+Some projects commit their generated `<DocumentationFile>` output (e.g.
+`Web.Core.xml`). Building regenerates it with docs for code that was already
+there. That change is unrelated to the upgrade -- revert it before committing
+(`git checkout -- <file>.xml`) so the PR stays focused.
