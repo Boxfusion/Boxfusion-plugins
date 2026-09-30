@@ -26,6 +26,15 @@ Configuration (all via environment variables — installed into the Claude Code
     CLAUDE_LOGGER_DEBUG_LOG     Optional path to a local file; when set, each
                                 event's name and forward outcome (HTTP status or
                                 error) is appended for troubleshooting.
+
+Test-harness linkage (optional; set by the SAA test harness per agent /
+evaluator run so each ClaudeLog row can be tied to the run that produced it):
+
+    CLAUDE_LOGGER_TEST_RUN_ID     -> test_run_id
+    CLAUDE_LOGGER_TEST_CASE_ID    -> test_case_id
+    CLAUDE_LOGGER_TEST_CASE_NAME  -> test_case_name
+    CLAUDE_LOGGER_ITERATION       -> iteration (int)
+    CLAUDE_LOGGER_HARNESS_ROLE    -> harness_role ("agent" / "evaluator")
 """
 
 from __future__ import annotations
@@ -61,35 +70,79 @@ def _debug(message: str) -> None:
 _OPAQUE_KEYS = frozenset({"tool_input", "tool_response"})
 
 # USD per 1M tokens: (input, output, cache_write_5m, cache_read).
-# Matched by prefix so dated model IDs (e.g. claude-opus-4-7-20260101) work.
+# Matched by longest prefix so dated IDs (e.g. claude-haiku-4-5-20251001) and
+# suffixes like "[1m]" work, and "claude-opus-5-5" isn't priced as "claude-opus-5".
 PRICING: dict[str, tuple[float, float, float, float]] = {
-    "claude-opus-4-8": (15.0, 75.0, 18.75, 1.50),
-    "claude-opus-4-7": (15.0, 75.0, 18.75, 1.50),
-    "claude-opus-4-6": (15.0, 75.0, 18.75, 1.50),
-    "claude-opus-4-5": (15.0, 75.0, 18.75, 1.50),
-    "claude-sonnet-4-6": (3.0, 15.0, 3.75, 0.30),
-    "claude-sonnet-4-5": (3.0, 15.0, 3.75, 0.30),
+    "claude-fable-5-1": (10.0, 50.0, 12.50, 0.25),
+    "claude-mythos-5-1": (10.0, 50.0, 12.50, 0.25),
+    "claude-fable-5": (10.0, 50.0, 12.50, 1.00),
+    "claude-mythos-5": (10.0, 50.0, 12.50, 1.00),
+    "claude-opus-5-5": (4.0, 20.0, 5.00, 0.20),
+    "claude-opus-5": (5.0, 25.0, 6.25, 0.50),
+    "claude-opus-4-8": (5.0, 25.0, 6.25, 0.50),
+    "claude-opus-4-7": (5.0, 25.0, 6.25, 0.50),
+    "claude-opus-4-6": (5.0, 25.0, 6.25, 0.50),
+    "claude-opus-4-5": (5.0, 25.0, 6.25, 0.50),
+    "claude-opus-4": (15.0, 75.0, 18.75, 1.50),
+    "claude-sonnet-5": (2.0, 10.0, 2.50, 0.20),
+    "claude-sonnet-4": (3.0, 15.0, 3.75, 0.30),
     "claude-haiku-4-5": (1.0, 5.0, 1.25, 0.10),
+    # Z.ai GLM (docs.z.ai/guides/overview/pricing). Cache storage is free, so
+    # cache writes are billed at the plain input rate.
+    "glm-5.3-flashx": (0.37, 1.25, 0.37, 0.075),
+    "glm-5.3-flash": (0.15, 0.50, 0.15, 0.03),
+    "glm-5.3": (1.4, 4.4, 1.4, 0.26),
+    "glm-5.2": (1.4, 4.4, 1.4, 0.26),
+    "glm-5.1": (1.4, 4.4, 1.4, 0.26),
+    "glm-5": (1.0, 3.2, 1.0, 0.20),
+    "glm-4.7-flashx": (0.07, 0.40, 0.07, 0.01),
+    "glm-4.7-flash": (0.0, 0.0, 0.0, 0.0),
+    "glm-4.7": (0.6, 2.2, 0.6, 0.11),
+    "glm-4.6v-flashx": (0.04, 0.40, 0.04, 0.004),
+    "glm-4.6v-flash": (0.0, 0.0, 0.0, 0.0),
+    "glm-4.6v": (0.3, 0.9, 0.3, 0.05),
+    "glm-4.6": (0.6, 2.2, 0.6, 0.11),
+    "glm-4.5v": (0.6, 1.8, 0.6, 0.11),
+    "glm-4.5-airx": (1.1, 4.5, 1.1, 0.22),
+    "glm-4.5-air": (0.2, 1.1, 0.2, 0.03),
+    "glm-4.5-x": (2.2, 8.9, 2.2, 0.45),
+    "glm-4.5-flash": (0.0, 0.0, 0.0, 0.0),
+    "glm-4.5": (0.6, 2.2, 0.6, 0.11),
+    "glm-4-32b": (0.1, 0.1, 0.1, 0.1),
+    "glm-ocr": (0.03, 0.03, 0.03, 0.03),
 }
+
+# Last-resort rates by family, so a model newer than the table above still gets
+# a (approximate) cost instead of null.
+FAMILY_FALLBACK: dict[str, tuple[float, float, float, float]] = {
+    "fable": PRICING["claude-fable-5-1"],
+    "mythos": PRICING["claude-mythos-5-1"],
+    "opus": PRICING["claude-opus-5-5"],
+    "sonnet": PRICING["claude-sonnet-5"],
+    "haiku": PRICING["claude-haiku-4-5"],
+    "glm": PRICING["glm-5.3"],
+}
+DEFAULT_PRICING = PRICING["claude-opus-5-5"]
 
 
 # --------------------------------------------------------------------------- #
 # Enrichment (ported from log_processor.py)
 # --------------------------------------------------------------------------- #
-def _lookup_pricing(model: str | None) -> tuple[float, float, float, float] | None:
-    if not model:
-        return None
-    for key, prices in PRICING.items():
-        if model.startswith(key):
+def _lookup_pricing(model: str | None) -> tuple[float, float, float, float]:
+    # Drop router prefixes such as "z-ai/glm-4.6" or "anthropic/claude-...".
+    name = (model or "").strip().lower().rsplit("/", 1)[-1]
+    for key in sorted(PRICING, key=len, reverse=True):
+        if name.startswith(key):
+            return PRICING[key]
+    for family, prices in FAMILY_FALLBACK.items():
+        if family in name:
             return prices
-    return None
+    _debug(f"no pricing for model {model!r}; using default rates")
+    return DEFAULT_PRICING
 
 
-def _calculate_cost(usage: dict[str, Any], model: str | None) -> float | None:
-    prices = _lookup_pricing(model)
-    if not prices:
-        return None
-    in_p, out_p, cache_w_p, cache_r_p = prices
+def _calculate_cost(usage: dict[str, Any], model: str | None) -> float:
+    in_p, out_p, cache_w_p, cache_r_p = _lookup_pricing(model)
     cost = (
         (usage.get("input_tokens") or 0) * in_p
         + (usage.get("output_tokens") or 0) * out_p
@@ -97,6 +150,14 @@ def _calculate_cost(usage: dict[str, Any], model: str | None) -> float | None:
         + (usage.get("cache_read_input_tokens") or 0) * cache_r_p
     ) / 1_000_000
     return round(cost, 6)
+
+
+_USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
 
 
 def _extract_user_prompt(message: dict[str, Any]) -> str | None:
@@ -148,7 +209,13 @@ def _read_last_turn(transcript_path: str) -> dict[str, Any]:
         return {}
 
     result: dict[str, Any] = {}
-    looking_for_prompt = False
+    # A turn spans many API calls (one per tool round-trip), and Claude Code
+    # writes one transcript entry per content block, repeating the message's
+    # usage on each. Collect usage per message id so every call in the turn is
+    # billed exactly once.
+    usage_by_msg: dict[str, tuple[dict[str, Any], str | None]] = {}
+    response_parts: list[str] = []
+    response_msg_id: str | None = None
 
     for line in reversed(lines):
         try:
@@ -158,28 +225,26 @@ def _read_last_turn(transcript_path: str) -> dict[str, Any]:
         message = entry.get("message") or {}
         role = message.get("role")
 
-        if not looking_for_prompt:
-            if role != "assistant" and entry.get("type") != "assistant":
-                continue
-            text_parts: list[str] = []
-            for block in message.get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block.get("text") or "")
-            usage = message.get("usage") or {}
+        if role == "assistant" or entry.get("type") == "assistant":
             model = message.get("model") or entry.get("model")
-            result.update({
-                "response": "".join(text_parts) or None,
-                "response_ts": entry.get("timestamp"),
-                "model": model,
-                "usage": {
-                    "input_tokens": usage.get("input_tokens"),
-                    "output_tokens": usage.get("output_tokens"),
-                    "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
-                    "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
-                },
-                "cost_usd": _calculate_cost(usage, model),
-            })
-            looking_for_prompt = True
+            msg_id = message.get("id") or entry.get("uuid") or str(len(usage_by_msg))
+            if "response_ts" not in result:
+                result["response_ts"] = entry.get("timestamp")
+            if model and model != "<synthetic>":
+                result.setdefault("model", model)
+                usage = message.get("usage") or {}
+                # Reverse order: the first entry seen per id is the latest,
+                # carrying the final output token count.
+                if usage and msg_id not in usage_by_msg:
+                    usage_by_msg[msg_id] = (usage, model)
+            text = "".join(
+                block.get("text") or ""
+                for block in message.get("content") or []
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+            if text and (response_msg_id is None or response_msg_id == msg_id):
+                response_msg_id = msg_id
+                response_parts.insert(0, text)
             continue
 
         if role == "user" or entry.get("type") == "user":
@@ -189,11 +254,47 @@ def _read_last_turn(transcript_path: str) -> dict[str, Any]:
                 result["prompt_ts"] = entry.get("timestamp")
                 break
 
+    totals = {key: 0 for key in _USAGE_KEYS}
+    cost = 0.0
+    for usage, model in usage_by_msg.values():
+        for key in _USAGE_KEYS:
+            totals[key] += usage.get(key) or 0
+        cost += _calculate_cost(usage, model)
+    result["response"] = "".join(response_parts) or None
+    result["usage"] = totals
+    result["cost_usd"] = round(cost, 6)
+
     t_prompt = _parse_ts(result.get("prompt_ts"))
     t_response = _parse_ts(result.get("response_ts"))
     if t_prompt and t_response:
         result["duration_ms"] = round((t_response - t_prompt).total_seconds() * 1000, 2)
     return result
+
+
+_HARNESS_TAG_ENV = {
+    "test_run_id": "CLAUDE_LOGGER_TEST_RUN_ID",
+    "test_case_id": "CLAUDE_LOGGER_TEST_CASE_ID",
+    "test_case_name": "CLAUDE_LOGGER_TEST_CASE_NAME",
+    "iteration": "CLAUDE_LOGGER_ITERATION",
+    "harness_role": "CLAUDE_LOGGER_HARNESS_ROLE",
+}
+
+
+def _harness_tags() -> dict[str, Any]:
+    """Test-harness linkage tags from the environment (empty outside the harness)."""
+    tags: dict[str, Any] = {}
+    for field, var in _HARNESS_TAG_ENV.items():
+        value = (os.environ.get(var) or "").strip()
+        if not value:
+            continue
+        if field == "iteration":
+            try:
+                tags[field] = int(value)
+            except ValueError:
+                continue
+        else:
+            tags[field] = value
+    return tags
 
 
 def build_log_record(
@@ -209,6 +310,8 @@ def build_log_record(
         **payload,
     }
     record.setdefault("cwd", payload.get("cwd"))
+    for key, value in _harness_tags().items():
+        record.setdefault(key, value)
     # Precedence: a user supplied in the payload (rare) → the explicit
     # CLAUDE_LOGGER_USER override → the OS user running Claude Code. So every
     # record is tagged with whoever is prompting, even with no configuration.
@@ -226,6 +329,9 @@ def build_log_record(
                 record.update(_read_last_turn(transcript_path))
             except Exception as exc:  # noqa: BLE001 - never let enrichment break logging
                 _debug(f"Stop enrichment failed: {exc!r}")
+        # Always send a cost on Stop, even when the transcript was unreadable.
+        if record.get("cost_usd") is None:
+            record["cost_usd"] = 0.0
 
     return record
 

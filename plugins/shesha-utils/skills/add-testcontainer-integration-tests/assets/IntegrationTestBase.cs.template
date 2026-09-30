@@ -1,0 +1,315 @@
+using {{StartupNamespace}};
+using Boxfusion.Common.Tests.TestingFramework;
+using Hangfire;
+using Hangfire.Dashboard;
+using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Shesha.DynamicEntities;
+using Shesha.Utilities;
+using System.Data.SqlClient;
+using System.Globalization;
+using System.Net.Http.Headers;
+using Testcontainers.MsSql;
+
+namespace {{TestProjectName}}
+{
+    public static class SettingsHelpers
+    {
+        public static void AddOrUpdateAppSetting<T>(string sectionPathKey, T value, string? filePath = null)
+        {
+            try
+            {
+                filePath ??= Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+                string json = File.ReadAllText(filePath);
+                dynamic jsonObj = Newtonsoft.Json.JsonConvert.DeserializeObject(json)!;
+
+                SetValueRecursively(sectionPathKey, jsonObj, value);
+
+                string output = Newtonsoft.Json.JsonConvert.SerializeObject(jsonObj, Newtonsoft.Json.Formatting.Indented);
+                File.WriteAllText(filePath, output);
+            }
+            catch (Exception ex)
+            {
+                // Carrying on would boot the app against whatever database appsettings.json already points at
+                throw new InvalidOperationException($"Error writing app setting '{sectionPathKey}' to '{filePath}'", ex);
+            }
+        }
+
+        private static void SetValueRecursively<T>(string sectionPathKey, dynamic jsonObj, T value)
+        {
+            // split the string at the first ':' character
+            var remainingSections = sectionPathKey.Split(":", 2);
+
+            var currentSection = remainingSections[0];
+            if (remainingSections.Length > 1)
+            {
+                // continue with the process, moving down the tree
+                SetValueRecursively(remainingSections[1], jsonObj[currentSection], value);
+            }
+            else
+            {
+                // we've got to the end of the tree, set the value
+                jsonObj[currentSection] = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts one SQL Server container and one in-process test server for the whole test run.
+    /// </summary>
+    public sealed class DatabaseFixture : IDisposable
+    {
+        public MsSqlContainer dbContainer;
+        public string connectionString;
+        private ProductTestServer _server;
+
+        private bool _routesRefreshed = false;
+
+        public async Task<ProductTestServer> GetServerAsync()
+        {
+            if (!_routesRefreshed)
+            {
+                _routesRefreshed = true;
+                await RefreshDynamicRoutesAsync();
+            }
+            return _server;
+        }
+
+        /// <summary>
+        /// Rebuilds the dynamic CRUD route table.
+        ///
+        /// Shesha generates the /api/dynamic/{module}/{Entity}/Crud/* controllers from the
+        /// Frwk_EntityConfigs rows, and MVC populates that controller feature once and caches it.
+        /// On a blank database those rows are only written later in the same startup by the
+        /// EntityConfigsBootstrapper, so the entities end up with no route and every call returns
+        /// 404 for the whole process. Cancelling the change token makes MVC re-run the feature
+        /// provider against the rows the bootstrapper has now written.
+        /// </summary>
+        private static async Task RefreshDynamicRoutesAsync()
+        {
+            var changeProvider = SheshaActionDescriptorChangeProvider.Instance;
+            if (changeProvider == null)
+                return;
+
+            changeProvider.HasChanged = true;
+
+            // Null until MVC has asked for a change token, i.e. until the routes have been built at least once.
+            var tokenSource = changeProvider.TokenSource;
+            if (tokenSource != null)
+                await tokenSource.CancelAsync();
+        }
+
+        public DatabaseFixture()
+        {
+            try
+            {
+                dbContainer = new MsSqlBuilder()
+                    .WithImage("robjomar/shesha-mssql-blank")
+                    .WithPassword("Acc@12345")
+                    .Build();
+
+                // Start the container and wait for it synchronously
+                AsyncHelper.RunSync(async () => await dbContainer.StartAsync());
+
+                // By default, database name is 'master'; SheshaTestHelper only resets databases named as test databases
+                var builder = new SqlConnectionStringBuilder(dbContainer.GetConnectionString())
+                {
+                    InitialCatalog = "Shesha_IntegrationTests"
+                };
+                connectionString = builder.ToString();
+
+                // Point the application at the container
+                SettingsHelpers.AddOrUpdateAppSetting<string>("ConnectionStrings:Default", connectionString);
+
+                _server = GetTestServer();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to start test container or server.", ex);
+            }
+        }
+
+        public static ProductTestServer GetTestServer()
+        {
+            var hostBuilder = WebHost.CreateDefaultBuilder(new string[0])
+                // Same folder SettingsHelpers writes appsettings.json to, whatever the runner's working directory
+                .UseContentRoot(AppContext.BaseDirectory)
+                .CaptureStartupErrors(true)
+                // Lets MVC rebuild its action descriptors so dynamic CRUD controllers for entities that
+                // are new to a blank database get routes. Registered here (runs before Startup.ConfigureServices,
+                // i.e. before AddMvcCore) so the project Startup does not need to change.
+                .ConfigureServices(services =>
+                {
+                    services.AddSingleton<IActionDescriptorChangeProvider>(SheshaActionDescriptorChangeProvider.Instance);
+                    services.AddSingleton(SheshaActionDescriptorChangeProvider.Instance);
+
+                    // CoreTestHelper calls the /hangfire stats endpoints; serve them from a test-only dashboard
+                    services.AddSingleton<IStartupFilter, TestHangfireDashboardStartupFilter>();
+                })
+                .UseStartup<Startup>()
+                .UseSetting("detailedErrors", "true")
+                .UseEnvironment("Testing");
+
+            return new ProductTestServer(hostBuilder);
+        }
+
+        public void Dispose()
+        {
+            if (dbContainer != null)
+                AsyncHelper.RunSync(async () => await dbContainer.StopAsync());
+            _server?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Maps a Hangfire dashboard at /hangfire ahead of the app's own pipeline, so the test helpers
+    /// reach the stats endpoints without the app's dashboard authorization. Test host only.
+    /// </summary>
+    internal sealed class TestHangfireDashboardStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.UseHangfireDashboard("/hangfire", new DashboardOptions
+            {
+                Authorization = new[] { new AllowAllDashboardAuthorizationFilter() }
+            });
+            next(app);
+        };
+    }
+
+    internal sealed class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
+    {
+        public bool Authorize(DashboardContext context) => true;
+    }
+
+    [CollectionDefinition("Sequential")]
+    public class DatabaseCollection : ICollectionFixture<DatabaseFixture>
+    {
+        // This class has no code, and is never created.
+        // Its purpose is to be the place to apply [CollectionDefinition]
+        // and all the ICollectionFixture<> interfaces.
+    }
+
+    [Collection("Sequential")]
+    public abstract class IntegrationTestBase
+    {
+        protected string _adminUser = "admin";
+        protected string _adminPass = "123qwe";
+
+        // One constant per Shesha module - the name passed to new SheshaModuleInfo("...")
+        const string _sheshaNameSpace = "Shesha";
+        {{ModuleNameSpaceConstants}}
+
+        private SheshaTestHelper? _sheshaTestHelper;
+
+        protected DatabaseFixture _fixture;
+
+        public IntegrationTestBase(DatabaseFixture fixture)
+        {
+            this._fixture = fixture;
+        }
+
+        #region Helpers
+
+        public CrudHelperBase<TestPerson> GetTestPersonHelper()
+        {
+            return new CrudHelperBase<TestPerson>(_sheshaNameSpace, "Person");
+        }
+
+        public CrudHelperBase<TestUser> GetTestUserHelper()
+        {
+            return new CrudHelperBase<TestUser>(_sheshaNameSpace, "User");
+        }
+
+        public StoredFileHelper GetTestStoredFileHelper()
+        {
+            return new StoredFileHelper();
+        }
+
+        // GetTest{Entity}Helper() methods for project entities go here
+
+        #endregion
+
+        public SheshaTestHelper GetSheshaTestHelper()
+        {
+            return _sheshaTestHelper ??= new SheshaTestHelper(this._fixture.connectionString);
+        }
+
+        public Task<ProductTestServer> CreateServerAsync()
+        {
+            return _fixture.GetServerAsync();
+        }
+
+        protected async Task<string> LoginAsAdminAsync(HttpClient client)
+        {
+            var token = await CoreTestHelper.LoginWithTokenAsync(client, _adminUser, _adminPass);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return token;
+        }
+
+        /// <summary>
+        /// Starts a scheduled job and waits for it to finish, as admin, then restores the caller's login.
+        /// Reading the job execution status needs the Maintenance permission; without it every poll in
+        /// StartJobAndWaitForCompleteAsync fails silently and the helper only returns after its 30s timeout.
+        /// </summary>
+        protected async Task RunJobAsAdminAsync(HttpClient client, Guid jobId)
+        {
+            var callerAuthorization = client.DefaultRequestHeaders.Authorization;
+            try
+            {
+                await LoginAsAdminAsync(client);
+                await CoreTestHelper.StartJobAndWaitForCompleteAsync(client, jobId);
+            }
+            finally
+            {
+                client.DefaultRequestHeaders.Authorization = callerAuthorization;
+            }
+        }
+
+        public virtual async Task CleanAllAsync()
+        {
+            // Background jobs can still be writing when the next test starts, and resetting the
+            // database underneath them deadlocks. Let them drain first, then retry if we still lose a deadlock.
+            var server = await CreateServerAsync();
+            using (var client = server.CreateClient())
+            {
+                await CoreTestHelper.WaitForHangfireNotProcessingAsync(client);
+            }
+
+            const int maxAttempts = 3;
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await GetSheshaTestHelper().CleanDatabaseAsync();
+                    return;
+                }
+                catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 1205 && attempt < maxAttempts)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(attempt));
+                }
+            }
+        }
+
+        protected string ConvertToISODate(DateTime date)
+        {
+            return date.ToString("o", CultureInfo.InvariantCulture);
+        }
+
+        protected string ConvertToISODateNoMilli(DateTime date)
+        {
+            return ConvertToISODate(date).Split('.')[0];
+        }
+    }
+
+    public class ProductTestServer : TestServer
+    {
+        public ProductTestServer(IWebHostBuilder builder) : base(builder)
+        {
+        }
+    }
+}
