@@ -1,0 +1,13 @@
+using Boxfusion.Common.Tests.TestingFramework;
+using System.ComponentModel.DataAnnotations;
+
+namespace {{TestProjectName}}
+{
+    /// <summary>
+    /// API-shaped copy of {{EntityFullName}}. References are sent and returned as TestGuidEntity.
+    /// </summary>
+    public class Test{{Entity}} : TestGuidEntity
+    {
+        {{EntityProperties}}
+    }
+}
