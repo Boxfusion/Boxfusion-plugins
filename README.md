@@ -250,6 +250,7 @@ We welcome contributions from the community! Here's how you can help:
         │   └── plugin.json
         └── skills/
             ├── add-analyzers/
+            ├── add-testcontainer-integration-tests/
             ├── clean-form-config/
             ├── create-integration-tests/
             ├── document-shaconfigs/
