@@ -73,8 +73,9 @@ namespace {{TestProjectName}}
         {
             if (!_routesRefreshed)
             {
-                _routesRefreshed = true;
                 await RefreshDynamicRoutesAsync();
+                // only after it succeeds, so a failed setup is retried by the next test instead of skipped
+                _routesRefreshed = true;
             }
             return _server;
         }
@@ -129,6 +130,11 @@ namespace {{TestProjectName}}
             }
             catch (Exception ex)
             {
+                // xUnit does not dispose a fixture whose constructor throws, so don't leave the container running
+                _server?.Dispose();
+                if (dbContainer != null)
+                    AsyncHelper.RunSync(async () => await dbContainer.DisposeAsync());
+
                 throw new InvalidOperationException("Failed to start test container or server.", ex);
             }
         }
@@ -159,9 +165,11 @@ namespace {{TestProjectName}}
 
         public void Dispose()
         {
-            if (dbContainer != null)
-                AsyncHelper.RunSync(async () => await dbContainer.StopAsync());
+            // Stop the server (and its Hangfire workers) while the database is still there to talk to,
+            // then remove the container (StopAsync only stops it, so containers pile up between runs)
             _server?.Dispose();
+            if (dbContainer != null)
+                AsyncHelper.RunSync(async () => await dbContainer.DisposeAsync());
         }
     }
 

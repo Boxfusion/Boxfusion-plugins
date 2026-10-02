@@ -20,6 +20,7 @@ Reference implementation: `pd-content` → `backend/test/boxfusion.content.Domai
 | [references/versions-and-build-props.md](references/versions-and-build-props.md) | **Read before touching any .csproj or Directory.Build.props** |
 | [references/testing-framework-api.md](references/testing-framework-api.md) | What the TestingFramework package provides — read before writing any helper |
 | [references/test-patterns.md](references/test-patterns.md) | Patterns for happy line, validation, update, delete, permissions, jobs, files, custom app services |
+| [references/fresh-db-troubleshooting.md](references/fresh-db-troubleshooting.md) | **Read when a test fails on the blank DB, or before upgrading an older suite**: finding the real error (ELMAH), swallowed migration failures, `.shaconfig` traps, cleanup traps, upgrade order |
 
 Placeholders in templates use `{{Name}}`. Replace every one; grep the output for `{{` before building.
 
@@ -46,7 +47,7 @@ Derive:
 
 ### Step 2: Choose mode
 
-- **Extend** — a test project already references `Boxfusion.Common.Tests.TestingFramework` and has a `DatabaseFixture`. Read its `IntegrationTestBase.cs` and two existing test classes first. Match their conventions exactly: where test models live, helper-getter naming (`GetTest{Entity}Helper()`), login style, assert style. Do not re-scaffold infrastructure. Still run the Step 3 version checks.
+- **Extend** — a test project already references `Boxfusion.Common.Tests.TestingFramework` and has a `DatabaseFixture`. Read its `IntegrationTestBase.cs` and two existing test classes first. Match their conventions exactly: where test models live, helper-getter naming (`GetTest{Entity}Helper()`), login style, assert style. Do not re-scaffold infrastructure. Still run the Step 3 version checks. If the existing suite predates this standard (seeded image, auth-bypass flag in production code, no route refresh, one catch-all file), follow *Upgrading an existing suite* in [references/fresh-db-troubleshooting.md](references/fresh-db-troubleshooting.md). On a blank DB, expect to find real migration and config-package bugs that the seeded image hid.
 - **Scaffold** — no such project. Continue with Steps 3–5.
 
 An existing NUnit/xUnit unit-test project (e.g. `*.Common.Domain.Tests` using `Abp.TestBase`/SQLite) is not this kind of project — leave it alone and scaffold a new one beside it.
@@ -112,7 +113,7 @@ If the entity is normally created through a custom app service (e.g. `ContentAct
    ```bash
    dotnet test <csproj> --filter "FullyQualifiedName~{Entity}Tests"
    ```
-   First run pulls the image and runs migrations (several minutes). If it fails, read the exception text from the helper (`Create ... failed: {server response}`) and fix the DTO or prerequisites — do not weaken assertions to make it pass.
+   First run pulls the image and runs migrations (several minutes). If it fails, read the exception text from the helper (`Create ... failed: {server response}`) and fix the DTO or prerequisites — do not weaken assertions to make it pass. If the message is vague (`SQL not available`, `Login failed` with an HTML page, a connection reset), the real error is in the log or in `elmah.errors`. See [references/fresh-db-troubleshooting.md](references/fresh-db-troubleshooting.md).
 
 ### Step 8: Offer the rest of the suite
 
