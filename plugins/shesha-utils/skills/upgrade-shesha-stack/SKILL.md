@@ -41,20 +41,30 @@ python scripts/resolve_versions.py --repo <repo-root> --target <shesha-version> 
 
 The script discovers the project's own shape and prints a plan. It:
 
-- reads every property from `backend/Directory.Build.props`
-- finds which packages each property versions, from the `.csproj` files **named
-  in the `.sln`**
+- reads every property from `backend/Directory.Build.props` (UTF-8 or UTF-16)
+- picks the solution — the first non-debug `.sln` when there are several; pass
+  `--sln <name>.sln` to choose explicitly — and finds which packages each
+  property versions from the `.csproj` files **named in that `.sln`**
 - picks, for each property, the newest version published by *every* package in
   that group whose `.nuspec` shows it was built against the target Shesha
-  version (`exact`), falling back to the newest with a lower floor (`compat`)
+  version (`exact`), falling back to the newest with a lower floor on the
+  **same release line** (`compat`). A module that depends on another module
+  instead of Shesha (e.g. `Shesha.SignalR` → `boxfusion.chat.Domain`,
+  `Shesha.MassTransit` → `Shesha.Enterprise.Domain`) is judged by what that
+  module was built against
 - finds every `@shesha-io/*` dependency in every `package.json` in the repo and
-  mirrors its backend module's version, resolving frontend-only packages
-  against the npm feed instead
+  mirrors its backend module's version (matching `@shesha-io/pd-<name>` to the
+  `<name>` module), resolving frontend-only packages against the npm feed instead
 - verifies each frontend version actually exists on the npm feed
 
 Exit code is non-zero when something is unresolved. Read the notes it prints: a
 `compat` result means no build was compiled against the target, and needs
-confirming at build time.
+confirming at build time. A property whose current value is a CI build
+(`0.0.0-buildNNN`) is flagged — confirm its replacement with the user.
+
+Feed listings can lag a fresh publish by a few minutes. If a module the user
+says was just released comes back `compat` or `UNRESOLVED`, re-run before
+choosing anything by hand.
 
 ### 3. Review the plan with the user
 
@@ -68,8 +78,10 @@ Show the resolved table before editing anything. Call out explicitly:
 ### 4. Apply the backend changes
 
 Edit **only** the property values in `backend/Directory.Build.props`. Never edit
-versions in individual `.csproj` files; they reference `$(...)` and are already
-correct.
+Shesha/Boxfusion versions in individual `.csproj` files; they reference `$(...)`
+and are already correct. Preserve the file's encoding and line endings — some
+repos save it as UTF-16 LE, where a UTF-8 rewrite turns the diff into a
+whole-file change.
 
 ### 5. Apply the frontend changes
 
@@ -145,7 +157,9 @@ lockfile confirmation, and anything left unresolved or flagged `compat`.
 
 - **One input.** The target Shesha version. Everything else is derived.
 - **Private feed only.** Never resolve these packages from public registries.
-- **`Directory.Build.props` only** on the backend. Never edit `.csproj` versions.
+- **`Directory.Build.props` only** on the backend. Never edit `.csproj` versions
+  of Shesha/Boxfusion packages. The one exception is a hardcoded third-party pin
+  that a module upgrade forces forward (NU1605) — see troubleshooting.
 - **Frontend mirrors backend.** An `@shesha-io/*` package takes the same version
   as its backend module. This holds for proper release versions; it does not
   hold for CI build-number versions (`0.0.0-build70972`, `0.0.64973-build`),

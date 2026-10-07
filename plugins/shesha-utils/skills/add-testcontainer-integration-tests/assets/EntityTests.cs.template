@@ -1,0 +1,37 @@
+using Boxfusion.Common.Tests.TestingFramework;
+
+namespace {{TestProjectName}}
+{
+    public class {{Entity}}Tests : IntegrationTestBase
+    {
+        public {{Entity}}Tests(DatabaseFixture fixture) : base(fixture)
+        {
+        }
+
+        [Fact]
+        public async Task Create{{Entity}}_HappyLineAsync()
+        {
+            await this.CleanAllAsync();
+
+            var server = await CreateServerAsync();
+
+            using var client = server.CreateClient();
+
+            await LoginAsAdminAsync(client);
+
+            // create any referenced entities first and pass them as new TestGuidEntity { id = ... }
+
+            var test{{Entity}} = new Test{{Entity}}
+            {
+                {{PropertyAssignments}}
+            };
+
+            var added{{Entity}} = await GetTest{{Entity}}Helper().CreateAsync(client, test{{Entity}});
+
+            var loaded{{Entity}} = await GetTest{{Entity}}Helper().GetAsync(client, added{{Entity}}.id);
+
+            Assert.NotEqual(Guid.Empty, added{{Entity}}.id);
+            {{PropertyAssertions}}
+        }
+    }
+}

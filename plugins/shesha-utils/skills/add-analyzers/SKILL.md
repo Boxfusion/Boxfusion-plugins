@@ -78,11 +78,11 @@ dotnet_diagnostic.IDISP018.severity = error  # Call SuppressFinalize
 dotnet_diagnostic.IDISP019.severity = error  # Call SuppressFinalize(this)
 dotnet_diagnostic.IDISP020.severity = error  # Call SuppressFinalize(this) in virtual dispose method
 dotnet_diagnostic.IDISP021.severity = error  # Call this.Dispose(true)
-dotnet_diagnostic.IDISP022.severity = error  # Call Dispose(true)
+dotnet_diagnostic.IDISP022.severity = error  # Call this.Dispose(false)
 dotnet_diagnostic.IDISP023.severity = error  # Don't use reference types in finalizer context
 dotnet_diagnostic.IDISP024.severity = error  # Don't call GC.SuppressFinalize(this) when the type is sealed
 dotnet_diagnostic.IDISP025.severity = error  # Class with no virtual dispose method should be sealed
-dotnet_diagnostic.IDISP026.severity = error  # Class with virtual dispose method should have protected virtual void Dispose(bool disposing)
+dotnet_diagnostic.IDISP026.severity = error  # Class with no virtual DisposeAsyncCore method should be sealed
 
 # ============================================================================
 # Microsoft.VisualStudio.Threading.Analyzers Rules
