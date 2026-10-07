@@ -110,6 +110,20 @@ PRICING: dict[str, tuple[float, float, float, float]] = {
     "glm-4.5": (0.6, 2.2, 0.6, 0.11),
     "glm-4-32b": (0.1, 0.1, 0.1, 0.1),
     "glm-ocr": (0.03, 0.03, 0.03, 0.03),
+    # Moonshot Kimi (platform.kimi.ai/docs/pricing/chat). Cache writes are
+    # billed as normal input; "kimi-k3[1m]" matches the "kimi-k3" prefix.
+    "kimi-k2.7-code-highspeed": (1.90, 8.00, 1.90, 0.38),
+    "kimi-k2.7-code": (0.95, 4.00, 0.95, 0.19),
+    "kimi-k2.6": (0.95, 4.00, 0.95, 0.16),
+    "kimi-k3": (3.00, 15.00, 3.00, 0.30),
+    # Alibaba Qwen, international deployment. APPROXIMATE: input/output from a
+    # third-party price summary (Sep 2026); cached input assumed at 20% of
+    # input. Check against the Model Studio console and correct here.
+    "qwen3.8-max": (2.00, 6.00, 2.00, 0.40),
+    "qwen3.8-flash": (0.14, 0.42, 0.14, 0.028),
+    "qwen3.7-max": (2.00, 6.00, 2.00, 0.40),
+    "qwen3.7-plus": (0.32, 1.28, 0.32, 0.064),
+    "qwen3.6-flash": (0.19, 1.13, 0.19, 0.038),
 }
 
 # Last-resort rates by family, so a model newer than the table above still gets
@@ -121,6 +135,8 @@ FAMILY_FALLBACK: dict[str, tuple[float, float, float, float]] = {
     "sonnet": PRICING["claude-sonnet-5"],
     "haiku": PRICING["claude-haiku-4-5"],
     "glm": PRICING["glm-5.3"],
+    "kimi": PRICING["kimi-k3"],
+    "qwen": PRICING["qwen3.8-max"],
 }
 DEFAULT_PRICING = PRICING["claude-opus-5-5"]
 
