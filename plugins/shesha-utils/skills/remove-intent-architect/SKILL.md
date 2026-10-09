@@ -27,10 +27,10 @@ python "$CLAUDE_PLUGIN_ROOT/skills/remove-intent-architect/scripts/remove_intent
 
 It removes:
 
-- root `intent/` and `Intent.Modules/` folders, and any `*.isln` files
+- root `intent/` and `Intent.Modules/` folders, any nested `intent/` folder holding an `.isln` (e.g. `backend/intent/`), and any other `*.isln` files
 - `Intent.*` `<PackageReference>` / `<PackageVersion>` entries (single- or multi-line) in `.csproj`, `.props`, `.targets`
-- `using Intent.*;`, `[assembly: IntentTemplate(...)]`, `[assembly: DefaultIntentManaged(...)]`
-- standalone `[IntentManaged(...)]` lines, including commented-out `//[IntentManaged(...)]`
+- `using Intent.*;`, `[assembly: IntentTemplate(...)]`, `[assembly: DefaultIntentManaged(...)]` and standalone `[IntentManaged(...)]` lines, including commented-out (`//`) versions
+- in Azure DevOps `.yml`/`.yaml`: Intent CLI steps (live or commented out, e.g. `install intent cli`, `run intent cli`), the `intentSolutionPath` variable and the `Intent Architect Credentials` variable group. Only the innermost list item mentioning Intent is removed, never its parent stage or job
 
 It preserves each file's BOM and line endings byte-for-byte (repos often mix LF and CRLF) and collapses blank lines orphaned by a removal, so the diff is deletions only.
 
@@ -60,16 +60,11 @@ dotnet build <solution>.sln --no-restore
 
 If a pipeline restores with `--locked-mode`, the regenerated lock files must be committed in the same change or CI fails. The build must finish with 0 errors.
 
-### Step 5: Clean pipelines, scripts and docs
+If restore fails with `NU1101` (package not found) or `401` against the private feed, the config is under `backend/.nuget/NuGet.Config`, which `dotnet` does not auto-discover, and it carries no credentials. Pass a temporary config written **outside the repo** that copies its sources and adds `SHESHA_FEED_PAT` credentials. See the upgrade-shesha-stack skill's `references/troubleshooting.md` ("Restore cannot authenticate"). A restore that succeeds without it may only be using the local package cache.
 
-Edit the files listed in the last report section by hand. In Azure DevOps YAML, remove:
+### Step 5: Review pipelines, scripts and docs
 
-- the `install intent cli` step (`dotnet tool install Intent.SoftwareFactory.CLI ...`). It is often still **live** even when the `run intent cli` step is commented out, and only slows the build
-- commented-out `run intent cli` / `intent-cli ensure-no-outstanding-changes` blocks
-- the `intentSolutionPath` variable and the `- group: 'Intent Architect Credentials'` variable-group link (live or commented)
-- `intent-packager package-application ...` steps that package `Intent.Modules`
-
-Delete whole steps at their list indentation so the YAML stays valid, and keep the line endings. Update README/CLAUDE.md lines that describe the `intent/` folder. Mention in the summary that the `Intent Architect Credentials` variable group in Azure DevOps can be deleted once no pipeline references it; that is a server-side change outside the repo.
+Review the pipeline diff: the script removes whole Intent steps, and a live `install intent cli` step means the change affects CI. Then edit what the last report section still lists by hand, e.g. README/CLAUDE.md/docs lines describing the `intent/` folder, or a `.ps1` running `intent-packager`. Delete whole steps at their list indentation so the YAML stays valid. Mention in the summary that the `Intent Architect Credentials` variable group in Azure DevOps can be deleted once no pipeline references it; that is a server-side change outside the repo.
 
 ### Step 6: Verify
 
