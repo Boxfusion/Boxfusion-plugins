@@ -60,6 +60,8 @@ dotnet build <solution>.sln --no-restore
 
 If a pipeline restores with `--locked-mode`, the regenerated lock files must be committed in the same change or CI fails. The build must finish with 0 errors.
 
+If restore fails with `NU1101` (package not found) or `401` against the private feed, the config is under `backend/.nuget/NuGet.Config`, which `dotnet` does not auto-discover, and it carries no credentials. Pass a temporary config written **outside the repo** that copies its sources and adds `SHESHA_FEED_PAT` credentials. See the upgrade-shesha-stack skill's `references/troubleshooting.md` ("Restore cannot authenticate"). A restore that succeeds without it may only be using the local package cache.
+
 ### Step 5: Review pipelines, scripts and docs
 
 Review the pipeline diff: the script removes whole Intent steps, and a live `install intent cli` step means the change affects CI. Then edit what the last report section still lists by hand, e.g. README/CLAUDE.md/docs lines describing the `intent/` folder, or a `.ps1` running `intent-packager`. Delete whole steps at their list indentation so the YAML stays valid. Mention in the summary that the `Intent Architect Credentials` variable group in Azure DevOps can be deleted once no pipeline references it; that is a server-side change outside the repo.
