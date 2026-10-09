@@ -4,13 +4,16 @@
 Usage: python remove_intent.py [REPO_ROOT] [--dry-run]   (REPO_ROOT defaults to cwd)
 
 Removes:
-  - root-level intent/ and Intent.Modules/ folders
+  - root-level intent/ and Intent.Modules/ folders, and any nested intent/ folder
+    that holds an .isln (e.g. backend/intent/)
   - *.isln solution files
   - Intent.* <PackageReference>/<PackageVersion> entries (single- or multi-line)
     in .csproj / .props / .targets files
   - using Intent.*; statements
   - [assembly: IntentTemplate(...)] / [assembly: DefaultIntentManaged(...)] statements
   - standalone [IntentManaged(...)] attribute lines (including commented-out ones)
+  - Azure DevOps YAML: Intent CLI steps (live or commented out), the intentSolutionPath
+    variable and the 'Intent Architect Credentials' variable group
 
 File encoding (BOM) and line endings (LF/CRLF) are preserved byte-for-byte.
 Blank lines orphaned by a removal are collapsed so no double blank lines remain.
@@ -31,10 +34,11 @@ BOM = b"\xef\xbb\xbf"
 SKIP_DIRS ={".git", "bin", "obj", "node_modules", ".vs", ".idea"}
 ROOT_DIRS = ["intent", "Intent.Modules"]
 
+# Each may be commented out (// prefix); those lines are removed too.
 CS_LINE_PATTERNS = [
-    re.compile(rb'^\s*using\s+Intent\.[\w.]+\s*;\s*$'),
-    re.compile(rb'^\s*\[\s*assembly:\s*IntentTemplate\(.*\)\s*\]\s*$'),
-    re.compile(rb'^\s*\[\s*assembly:\s*DefaultIntentManaged\(.*\)\s*\]\s*$'),
+    re.compile(rb'^\s*(//\s*)?using\s+Intent\.[\w.]+\s*;\s*$'),
+    re.compile(rb'^\s*(//\s*)?\[\s*assembly:\s*IntentTemplate\(.*\)\s*\]\s*$'),
+    re.compile(rb'^\s*(//\s*)?\[\s*assembly:\s*DefaultIntentManaged\(.*\)\s*\]\s*$'),
     re.compile(rb'^\s*(//\s*)?\[\s*IntentManaged\(.*\)\s*\]\s*$'),
 ]
 
@@ -50,14 +54,30 @@ INTENT_MARKER = re.compile(
     rb'|\.isln\b|intentSolutionPath|intent-architect'
 )
 CODE_EXTS = (".cs", ".csproj", ".props", ".targets")
+YAML_EXTS = (".yml", ".yaml")
 OTHER_EXTS = (".yml", ".yaml", ".ps1", ".sh", ".cmd", ".bat", ".md", ".json",
               ".config", ".sln", ".dockerfile", ".gitignore", ".editorconfig")
+
+
+INTENT_DIRS = set()  # metadata folders being deleted; filled by find_intent_dirs()
+
+
+def find_intent_dirs(root):
+    """Root intent/ and Intent.Modules/, plus any intent/ folder holding an .isln (e.g. backend/intent/)."""
+    found = {os.path.join(root, n) for n in ROOT_DIRS if os.path.isdir(os.path.join(root, n))}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS
+                       and os.path.join(dirpath, d) not in found]
+        if os.path.basename(dirpath).lower() == "intent" and any(f.endswith(".isln") for f in filenames):
+            found.add(dirpath)
+            dirnames[:] = []
+    return sorted(found)
 
 
 def walk_files(root, exts):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS
-                       and not (dirpath == root and d in ROOT_DIRS)]
+                       and os.path.join(dirpath, d) not in INTENT_DIRS]
         for name in filenames:
             if name.lower().endswith(exts) or name in exts:
                 yield os.path.join(dirpath, name)
@@ -76,6 +96,13 @@ def remove_lines(path, should_remove, dry_run):
     drop = should_remove(lines)
     if not drop:
         return []
+    # A run of blank lines between two removed regions goes with them.
+    for i, line in enumerate(lines):
+        if is_blank(line) and i not in drop:
+            above = next((k for k in range(i - 1, -1, -1) if not is_blank(lines[k])), None)
+            below = next((k for k in range(i + 1, len(lines)) if not is_blank(lines[k])), None)
+            if above in drop and below in drop:
+                drop.add(i)
 
     kept = []
     removed_before = False  # True when lines were removed just before the next kept line
@@ -115,14 +142,75 @@ def pkg_targets(lines):
     return drop
 
 
+# Azure DevOps YAML: Intent variables (live or commented) and step blocks.
+YAML_VAR = re.compile(rb"^\s*(#\s*)?-\s*name:\s*['\"]?intentSolutionPath['\"]?\s*$")
+YAML_VAR_VALUE = re.compile(rb"^\s*(#\s*)?value:\s*['\"]?intent['\"]?\s*$")
+YAML_GROUP = re.compile(rb"^\s*(#\s*)?-\s*group:\s*['\"]?Intent Architect Credentials['\"]?\s*$")
+YAML_ITEM = re.compile(rb"^(\s*)(#\s*)?(\s*)-\s+\w")  # list item, possibly commented out
+
+
+def yaml_shape(line):
+    """(commented, indent of the content after any '#'), or None for a blank line."""
+    if is_blank(line):
+        return None
+    stripped = line.lstrip()
+    if stripped.startswith(b"#"):
+        body = stripped[1:]
+        return True, len(body) - len(body.lstrip())
+    return False, len(line) - len(stripped)
+
+
+def yaml_targets(lines):
+    """Intent variable lines, plus whole list items (steps) whose block mentions Intent.
+
+    A block is a list item plus following lines of the same kind (live or commented)
+    indented deeper than its dash; blank lines are kept in the block only when it continues after them.
+    """
+    drop, i = set(), 0
+    while i < len(lines):
+        line = lines[i]
+        if YAML_GROUP.match(line):
+            drop.add(i)
+        elif YAML_VAR.match(line):
+            drop.add(i)
+            if i + 1 < len(lines) and YAML_VAR_VALUE.match(lines[i + 1]):
+                drop.add(i + 1)
+                i += 1
+        elif YAML_ITEM.match(line):
+            commented, indent = yaml_shape(line)
+            end, j = i, i + 1
+            while j < len(lines):
+                shape = yaml_shape(lines[j])
+                if shape is None:
+                    j += 1
+                    continue
+                if shape[0] != commented or shape[1] <= indent:
+                    break
+                end = j
+                j += 1
+            block = range(i, end + 1)
+            # Drop only innermost items: a stage/job holding nested items is descended into instead.
+            nested = any(YAML_ITEM.match(lines[k]) and yaml_shape(lines[k])[0] == commented
+                         for k in block[1:])
+            if not nested and any(INTENT_MARKER.search(lines[k]) for k in block):
+                drop.update(block)
+                i = end
+        i += 1
+    return drop
+
+
 REMOVABLE = CS_LINE_PATTERNS + [PKG_SINGLE, PKG_OPEN]
 
 
-def scan(path):
+def scan(path, removable_lines=None):
     """Intent references the removal rules do not handle (so dry runs show only true leftovers)."""
     hits = []
     with open(path, "rb") as f:
-        for n, line in enumerate(f, 1):
+        data = f.read()
+    lines = data[len(BOM):].splitlines(keepends=True) if data.startswith(BOM) else data.splitlines(keepends=True)
+    skip = removable_lines(lines) if removable_lines else set()
+    for n, line in enumerate(lines, 1):
+        if n - 1 not in skip:
             if INTENT_MARKER.search(line) and not any(p.match(line) for p in REMOVABLE):
                 text = line.decode("utf-8", "replace").lstrip("﻿").strip()
                 hits.append(f"{path}:{n}: {text[:160]}")
@@ -156,12 +244,11 @@ def main():
     changes = []
     verb = "Would delete" if dry_run else "Deleted"
 
-    for name in ROOT_DIRS:
-        d = os.path.join(root, name)
-        if os.path.isdir(d):
-            if not dry_run:
-                shutil.rmtree(d)
-            changes.append(f"{verb} folder: {d}")
+    INTENT_DIRS.update(find_intent_dirs(root))
+    for d in sorted(INTENT_DIRS):
+        if not dry_run:
+            shutil.rmtree(d)
+        changes.append(f"{verb} folder: {d}")
 
     for path in walk_files(root, (".isln",)):
         if not dry_run:
@@ -179,6 +266,11 @@ def main():
             cs_files += 1
             changes.append(f"{path}: removed {len(removed)} line(s)")
 
+    for path in walk_files(root, YAML_EXTS):
+        removed = remove_lines(path, yaml_targets, dry_run)
+        if removed:
+            changes.append(f"{path}: removed {len(removed)} pipeline line(s)")
+
     print(f"=== Changes{' (dry run)' if dry_run else ''} ===")
     print("\n".join("  " + c for c in changes) if changes else "  (nothing removed)")
     print(f"  -- {cs_files} .cs file(s) cleaned")
@@ -194,7 +286,7 @@ def main():
             elif status:
                 transitive.append(f"{path}  (via {', '.join(status[1])})")
         else:
-            other += scan(path)
+            other += scan(path, yaml_targets if path.lower().endswith(YAML_EXTS) else None)
 
     print("\n=== Remaining Intent references in code (fix by hand) ===")
     print("\n".join("  " + r for r in code_left) if code_left else "  none")
