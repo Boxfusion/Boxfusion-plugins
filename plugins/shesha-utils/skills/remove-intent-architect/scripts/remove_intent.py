@@ -11,7 +11,8 @@ Removes:
     in .csproj / .props / .targets files
   - using Intent.*; statements
   - [assembly: IntentTemplate(...)] / [assembly: DefaultIntentManaged(...)] statements
-  - standalone [IntentManaged(...)] attribute lines (including commented-out ones)
+  - standalone Intent attribute lines ([IntentManaged(...)], [IntentIgnore], [IntentMerge], ...),
+    including commented-out ones
   - Azure DevOps YAML: Intent CLI steps (live or commented out), the intentSolutionPath
     variable and the 'Intent Architect Credentials' variable group
 
@@ -39,7 +40,9 @@ CS_LINE_PATTERNS = [
     re.compile(rb'^\s*(//\s*)?using\s+Intent\.[\w.]+\s*;\s*$'),
     re.compile(rb'^\s*(//\s*)?\[\s*assembly:\s*IntentTemplate\(.*\)\s*\]\s*$'),
     re.compile(rb'^\s*(//\s*)?\[\s*assembly:\s*DefaultIntentManaged\(.*\)\s*\]\s*$'),
-    re.compile(rb'^\s*(//\s*)?\[\s*IntentManaged\(.*\)\s*\]\s*$'),
+    # Every attribute in Intent.RoslynWeaver.Attributes, with or without arguments.
+    re.compile(rb'^\s*(//\s*)?\[\s*(IntentManaged|IntentIgnore|IntentIgnoreBody|IntentMerge|IntentInitialGen'
+               rb'|IntentCanAdd|IntentCanUpdate|IntentCanRemove)(\(.*\))?\s*\]\s*$'),
 ]
 
 PKG_SINGLE = re.compile(rb'^\s*<(PackageReference|PackageVersion)\s+(Include|Update)="Intent\.[^"]*"[^>]*/>\s*$')
@@ -49,7 +52,7 @@ PKG_CLOSE = re.compile(rb'</(PackageReference|PackageVersion)>\s*$')
 # Precise markers of Intent Architect (avoids false positives such as "IntentResult").
 INTENT_MARKER = re.compile(
     rb'Intent\.(RoslynWeaver|VisualStudio|SoftwareFactory|Modules|Metadata)'
-    rb'|IntentManaged|IntentTemplate|IntentIgnore|IntentMerge|IntentInitialGen'
+    rb'|IntentManaged|IntentTemplate|IntentIgnore|IntentMerge|IntentInitialGen|IntentCan(Add|Update|Remove)'
     rb'|intent-cli|intent-packager|IntentArchitect|INTENT_(USER|PASS|SOLUTION)'
     rb'|\.isln\b|intentSolutionPath|intent-architect'
 )

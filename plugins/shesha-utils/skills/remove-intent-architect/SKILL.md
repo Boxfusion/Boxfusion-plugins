@@ -29,7 +29,7 @@ It removes:
 
 - root `intent/` and `Intent.Modules/` folders, any nested `intent/` folder holding an `.isln` (e.g. `backend/intent/`), and any other `*.isln` files
 - `Intent.*` `<PackageReference>` / `<PackageVersion>` entries (single- or multi-line) in `.csproj`, `.props`, `.targets`
-- `using Intent.*;`, `[assembly: IntentTemplate(...)]`, `[assembly: DefaultIntentManaged(...)]` and standalone `[IntentManaged(...)]` lines, including commented-out (`//`) versions
+- `using Intent.*;`, `[assembly: IntentTemplate(...)]`, `[assembly: DefaultIntentManaged(...)]` and standalone Intent attribute lines (`[IntentManaged(...)]`, `[IntentIgnore]`, `[IntentMerge]`, `[IntentInitialGen]`, `[IntentCanAdd/Update/Remove]`), including commented-out (`//`) versions
 - in Azure DevOps `.yml`/`.yaml`: Intent CLI steps (live or commented out, e.g. `install intent cli`, `run intent cli`), the `intentSolutionPath` variable and the `Intent Architect Credentials` variable group. Only the innermost list item mentioning Intent is removed, never its parent stage or job
 
 It preserves each file's BOM and line endings byte-for-byte (repos often mix LF and CRLF) and collapses blank lines orphaned by a removal, so the diff is deletions only.
