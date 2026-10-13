@@ -72,6 +72,8 @@ _OPAQUE_KEYS = frozenset({"tool_input", "tool_response"})
 # USD per 1M tokens: (input, output, cache_write_5m, cache_read).
 # Matched by longest prefix so dated IDs (e.g. claude-haiku-4-5-20251001) and
 # suffixes like "[1m]" work, and "claude-opus-5-5" isn't priced as "claude-opus-5".
+# Claude rates verified against platform.claude.com/docs/en/about-claude/pricing
+# (Oct 2026); Claude 4.6+ bill the full 1M context at these standard rates.
 PRICING: dict[str, tuple[float, float, float, float]] = {
     "claude-fable-5-1": (10.0, 50.0, 12.50, 0.25),
     "claude-mythos-5-1": (10.0, 50.0, 12.50, 0.25),
@@ -84,9 +86,13 @@ PRICING: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-4-6": (5.0, 25.0, 6.25, 0.50),
     "claude-opus-4-5": (5.0, 25.0, 6.25, 0.50),
     "claude-opus-4": (15.0, 75.0, 18.75, 1.50),
+    "claude-sonnet-5-5": (2.0, 10.0, 2.50, 0.10),
     "claude-sonnet-5": (2.0, 10.0, 2.50, 0.20),
     "claude-sonnet-4": (3.0, 15.0, 3.75, 0.30),
+    # Haiku 5.5 rates for prompts up to 100K tokens; see HAIKU_5_5_LONG_PROMPT.
+    "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01),
     "claude-haiku-4-5": (1.0, 5.0, 1.25, 0.10),
+    "claude-3-5-haiku": (0.80, 4.0, 1.00, 0.08),
     # Z.ai GLM (docs.z.ai/guides/overview/pricing). Cache storage is free, so
     # cache writes are billed at the plain input rate.
     "glm-5.3-flashx": (0.37, 1.25, 0.37, 0.075),
@@ -116,15 +122,23 @@ PRICING: dict[str, tuple[float, float, float, float]] = {
     "kimi-k2.7-code": (0.95, 4.00, 0.95, 0.19),
     "kimi-k2.6": (0.95, 4.00, 0.95, 0.16),
     "kimi-k3": (3.00, 15.00, 3.00, 0.30),
-    # Alibaba Qwen, international deployment. APPROXIMATE: input/output from a
-    # third-party price summary (Sep 2026); cached input assumed at 20% of
-    # input. Check against the Model Studio console and correct here.
+    # Alibaba Qwen, International (Singapore) deployment, first context tier
+    # (alibabacloud.com/help/en/model-studio/model-pricing, Oct 2026). Cache
+    # reads use the implicit-cache rate (20% of input); qwen3.8-* cache rates
+    # are console-only, so 20% is an estimate there. qwen3.7-plus is the
+    # limited-time 20%-off price (list $0.40/$1.60). qwen3.6-flash has explicit
+    # caching only: writes 125%, hits 10% of input.
     "qwen3.8-max": (2.00, 6.00, 2.00, 0.40),
-    "qwen3.8-flash": (0.14, 0.42, 0.14, 0.028),
-    "qwen3.7-max": (2.00, 6.00, 2.00, 0.40),
+    "qwen3.8-flash": (0.15, 0.47, 0.15, 0.03),
+    "qwen3.7-max": (2.50, 7.50, 2.50, 0.50),
     "qwen3.7-plus": (0.32, 1.28, 0.32, 0.064),
-    "qwen3.6-flash": (0.19, 1.13, 0.19, 0.038),
+    "qwen3.6-flash": (0.25, 1.50, 0.3125, 0.025),
 }
+
+# Claude Haiku 5.5 bills the whole request at higher rates once its prompt
+# (input + cache reads + cache writes) exceeds 100K tokens.
+HAIKU_5_5_LONG_PROMPT = 100_000
+HAIKU_5_5_LONG_PRICING = (0.50, 2.50, 0.625, 0.05)
 
 # Last-resort rates by family, so a model newer than the table above still gets
 # a (approximate) cost instead of null.
@@ -159,11 +173,25 @@ def _lookup_pricing(model: str | None) -> tuple[float, float, float, float]:
 
 def _calculate_cost(usage: dict[str, Any], model: str | None) -> float:
     in_p, out_p, cache_w_p, cache_r_p = _lookup_pricing(model)
+    input_tokens = usage.get("input_tokens") or 0
+    cache_write = usage.get("cache_creation_input_tokens") or 0
+    cache_read = usage.get("cache_read_input_tokens") or 0
+    if (
+        "haiku-5-5" in (model or "").lower()
+        and input_tokens + cache_write + cache_read > HAIKU_5_5_LONG_PROMPT
+    ):
+        in_p, out_p, cache_w_p, cache_r_p = HAIKU_5_5_LONG_PRICING
+    # 1h-TTL cache writes cost 2x input (Claude and Kimi) instead of the 5m rate.
+    write_1h = min(
+        (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0,
+        cache_write,
+    )
     cost = (
-        (usage.get("input_tokens") or 0) * in_p
+        input_tokens * in_p
         + (usage.get("output_tokens") or 0) * out_p
-        + (usage.get("cache_creation_input_tokens") or 0) * cache_w_p
-        + (usage.get("cache_read_input_tokens") or 0) * cache_r_p
+        + (cache_write - write_1h) * cache_w_p
+        + write_1h * in_p * 2
+        + cache_read * cache_r_p
     ) / 1_000_000
     return round(cost, 6)
 
