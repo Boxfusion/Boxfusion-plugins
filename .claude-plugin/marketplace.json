@@ -22,7 +22,7 @@
     {
       "name": "boxfusion-infra",
       "source": "./plugins/boxfusion-infra",
-      "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, starting with Elmah log cleanup (XML files and SQL)."
+      "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, starting with Elmah log cleanup (XML files on Linux and Windows App Services, and SQL)."
     }
   ]
 }
