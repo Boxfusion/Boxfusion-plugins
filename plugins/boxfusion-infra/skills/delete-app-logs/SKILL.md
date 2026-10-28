@@ -43,7 +43,7 @@ bash $K <app> <rg> "<sub>" exec "<bash or PowerShell>"
 
 ## Fleet survey
 
-To find which apps need it, take the prod app list from the Airtable base **Repos & Modules** (table **Repos**, field **Azure Prod Apps**) and resolve each app's subscription, resource group and kind with `az webapp list`. Then run `survey` on every API, but not the portals, which have no backend logs. Run about 4–8 at a time, and write each app's output to its own file. Rank by `TOTAL_MB` and show the biggest job folders. Apps whose survey times out have very large folders, so retry them on their own.
+To find which apps need it, take the prod app list from the Airtable base **Repos & Modules** (table **Repos**, field **Azure Prod Apps**) and resolve each app's subscription, resource group and kind with `az webapp list`. Then run `survey` on every API, but not the portals, which have no backend logs. Run about 4–8 at a time, and write each app's output to its own file. Rank by `TOTAL_MB` and show the biggest job folders. `survey` has to finish within Kudu's ~230 s request limit, so a folder with millions of small files times out (`dws`: 1.78M files, only 818 MB). For those, use `start count <logs-dir> <days>`, which runs detached. Report the file count as well as the size, because millions of files in `wwwroot` can slow app startup even when they take little space.
 
 ## Report
 
