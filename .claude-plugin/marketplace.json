@@ -18,6 +18,11 @@
       "name": "shesha-auto-testing",
       "source": "./plugins/shesha-auto-testing",
       "description": "Automated end-to-end testing toolkit for Shesha framework applications. Provides skills for scaffolding Playwright test infrastructure, authoring test plans, running tests locally and on remote hubs, and syncing results to a central reports dashboard."
+    },
+    {
+      "name": "boxfusion-infra",
+      "source": "./plugins/boxfusion-infra",
+      "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, including Elmah log cleanup (XML files and SQL) and app log cleanup (log4net and scheduled-job logs) on Linux and Windows App Services."
     }
   ]
 }

@@ -1,0 +1,2 @@
+# Shell scripts run on Linux App Services and in bash; CRLF breaks them.
+*.sh text eol=lf
