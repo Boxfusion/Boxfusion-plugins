@@ -80,7 +80,7 @@ bash $K <app> <rg> "<sub>" sql-status                    # poll; progress = rows
 bash $K <app> <rg> "<sub>" sql-start delete 30 [5000]    # only after user confirms; batches of 5000
 bash $K <app> <rg> "<sub>" sql-stop
 ```
-The histogram's `top_types_older` is the error tally to share before deleting. The delete goes one application at a time in short batches (the live app keeps logging), then removes orphaned `error_refs`. Several apps often share one database, so check `rows_by_application` and run the job once per database. SQL Server only; for PostgreSQL, or to run statements by hand, see [reference/sql-store.md](reference/sql-store.md).
+The histogram's `top_types_older` is the error tally to share before deleting. The delete goes one application at a time in short batches (the live app keeps logging), then removes orphaned `error_refs`. Several apps often share one database, so check `rows_by_application` and run the job once per database. `elmah_mb` barely drops after a delete: `all_xml` lives in LOB pages that stay allocated to the heap. New errors reuse that space, so the database stops growing, but giving it back needs `ALTER TABLE elmah.errors REBUILD` off-peak (or `TRUNCATE` when `rows_remaining=0`), which is a separate, user-approved step. Size the batch from the histogram: `elmah_mb` ÷ rows gives the average row size, and a batch should stay around 250 MB of log (the default 5000 suits typical 20–50 KB rows; dsd-npo's ~530 KB rows needed 500). SQL Server only; for PostgreSQL, or to run statements by hand, see [reference/sql-store.md](reference/sql-store.md).
 
 ## Report
 
