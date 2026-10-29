@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Local driver for Elmah XML cleanup on an Azure App Service (Linux or Windows) through the Kudu (SCM) API.
+# Local driver for Elmah cleanup on an Azure App Service (Linux or Windows) through the Kudu (SCM) API:
+# XML files on disk, or Shesha.Elmah rows in the app's SQL Server database.
 # Requires: az (logged in), curl, iconv. Works in Git Bash, Linux and macOS.
 #
 # Usage: kudu-elmah.sh <app> <resource-group> <subscription> <action> [args]
@@ -7,6 +8,9 @@
 #   start <histogram|count|delete> <dir> <days>  upload the job script and run it detached
 #   status                         print the job's status/progress files
 #   stop                           kill a running job
+#   sql-start <histogram|count|delete> <days> [batch]  same for the elmah.errors table in the app's
+#                                  Default database (runs on the app side, so no SQL firewall rule needed)
+#   sql-status | sql-stop          poll / kill the SQL job
 #   exec "<command>"               run a short bash (Linux) or PowerShell (Windows) command
 #                                  (Kudu kills requests after ~230s)
 
@@ -57,11 +61,12 @@ kudu_exec() {
 vfs_put() {
   # stdin rather than @path: with MSYS_NO_PATHCONV a native Windows curl can't open /c/... paths
   curl -sS -m 60 -H "Authorization: Bearer $TOKEN" -H "If-Match: *" -X PUT \
-    --data-binary @- "$KUDU/api/vfs/LogFiles/elmah-cleanup/$(basename "$1")" < "$1"
+    --data-binary @- "$KUDU/api/vfs/LogFiles/${2:-elmah-cleanup}/$(basename "$1")" < "$1"
 }
 
 if [ "$OS" = linux ]; then
   WORK=/home/LogFiles/elmah-cleanup
+  SQLWORK=/home/LogFiles/elmah-sql
   case "$ACTION" in
     probe)
       kudu_exec "df -h /home | tail -1; echo '--- elmah folders:'; find /home/site/wwwroot /home/LogFiles /home/data -maxdepth 3 -type d -iname '*elmah*' ! -name elmah-cleanup 2>/dev/null | sort -u; echo '--- appsettings mentioning elmah:'; grep -il elmah /home/site/wwwroot/appsettings*.json 2>/dev/null; true"
@@ -78,6 +83,19 @@ if [ "$OS" = linux ]; then
     stop)
       kudu_exec "[ -f $WORK/pid ] && pkill -P \$(cat $WORK/pid); kill \$(cat $WORK/pid) 2>/dev/null; rm -f $WORK/pid; echo stopped"
       ;;
+    sql-start)
+      MODE="${1:?histogram|count|delete required}"; DAYS="${2:?days required}"; BATCH="${3:-5000}"
+      kudu_exec "mkdir -p $SQLWORK" >/dev/null
+      vfs_put "$SCRIPT_DIR/elmah-sql.js" elmah-sql
+      # elmah-sql.js installs the mssql npm package into $SQLWORK on first run (state=installing-mssql).
+      kudu_exec "cd $SQLWORK; rm -f errors.log status; nohup setsid node $SQLWORK/elmah-sql.js '$MODE' '$DAYS' '$BATCH' '$SQLWORK' > run.log 2>&1 < /dev/null & sleep 5; cat run.log; cat status 2>/dev/null"
+      ;;
+    sql-status)
+      kudu_exec "cat $SQLWORK/status 2>/dev/null || echo 'no job has run'; echo progress=\$(cat $SQLWORK/progress 2>/dev/null); [ -f $SQLWORK/pid ] && kill -0 \$(cat $SQLWORK/pid) 2>/dev/null && echo alive=yes || echo alive=no; tail -5 $SQLWORK/errors.log 2>/dev/null; true"
+      ;;
+    sql-stop)
+      kudu_exec "[ -f $SQLWORK/pid ] && kill \$(cat $SQLWORK/pid) 2>/dev/null; rm -f $SQLWORK/pid; echo stopped"
+      ;;
     exec)
       kudu_exec "${1:?command required}"
       ;;
@@ -87,6 +105,7 @@ if [ "$OS" = linux ]; then
   esac
 else
   WORK=D:/home/LogFiles/elmah-cleanup
+  SQLWORK=D:/home/LogFiles/elmah-sql
   case "$ACTION" in
     probe)
       # Windows Kudu reports drive usage as 0; use the FileSystemUsage metric for disk size instead.
@@ -103,6 +122,18 @@ else
       ;;
     stop)
       kudu_exec "\$p = Get-Content '$WORK/pid' -ErrorAction SilentlyContinue; if (\$p) { Stop-Process -Id \$p -Force -ErrorAction SilentlyContinue }; Remove-Item '$WORK/pid' -ErrorAction SilentlyContinue; 'stopped'"
+      ;;
+    sql-start)
+      MODE="${1:?histogram|count|delete required}"; DAYS="${2:?days required}"; BATCH="${3:-5000}"
+      kudu_exec "New-Item -ItemType Directory -Force '$SQLWORK' | Out-Null" >/dev/null
+      vfs_put "$SCRIPT_DIR/elmah-sql.ps1" elmah-sql
+      kudu_exec "Remove-Item '$SQLWORK/errors.log','$SQLWORK/status' -ErrorAction SilentlyContinue; Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$SQLWORK/elmah-sql.ps1','$MODE','$DAYS','$BATCH','$SQLWORK' | Out-Null; Start-Sleep 5; Get-Content '$SQLWORK/status' -ErrorAction SilentlyContinue; exit 0"
+      ;;
+    sql-status)
+      kudu_exec "if (Test-Path '$SQLWORK/status') { Get-Content '$SQLWORK/status' } else { 'no job has run' }; 'progress=' + (Get-Content '$SQLWORK/progress' -ErrorAction SilentlyContinue); \$p = Get-Content '$SQLWORK/pid' -ErrorAction SilentlyContinue; if (\$p -and (Get-Process -Id \$p -ErrorAction SilentlyContinue)) { 'alive=yes' } else { 'alive=no' }; Get-Content '$SQLWORK/errors.log' -Tail 5 -ErrorAction SilentlyContinue; exit 0"
+      ;;
+    sql-stop)
+      kudu_exec "\$p = Get-Content '$SQLWORK/pid' -ErrorAction SilentlyContinue; if (\$p) { Stop-Process -Id \$p -Force -ErrorAction SilentlyContinue }; Remove-Item '$SQLWORK/pid' -ErrorAction SilentlyContinue; 'stopped'"
       ;;
     exec)
       kudu_exec "${1:?command required}"

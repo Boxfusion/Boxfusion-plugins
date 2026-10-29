@@ -72,7 +72,15 @@ Optional follow-up: suggest stopping the growth at its source, through XML reten
 
 ## Step 3: Database store
 
-Follow [reference/sql-store.md](reference/sql-store.md). It covers locating the connection string without exposing it, sizing queries, `TRUNCATE` for delete-all, batched age-based deletes for SQL Server and PostgreSQL, orphaned `error_refs` cleanup and space reclaim.
+Apps whose `Startup.cs` calls `services.AddSheshaElmah(...)` log to `elmah.errors` in their `Default` database; `services.AddElmah<XmlFileErrorLog>` means XML files. Prod SQL firewalls usually block developer IPs, so `kudu-elmah.sh` runs the SQL job **on the app side** with the app's own connection string (Node + `mssql` on Linux Kudu, installed into the work dir on first use; PowerShell + SqlClient on Windows):
+```bash
+bash $K <app> <rg> "<sub>" sql-start histogram 30        # size, rows per app/month, top error types older/recent
+bash $K <app> <rg> "<sub>" sql-start count 30            # rows older than 30 days
+bash $K <app> <rg> "<sub>" sql-status                    # poll; progress = rows deleted so far
+bash $K <app> <rg> "<sub>" sql-start delete 30 [5000]    # only after user confirms; batches of 5000
+bash $K <app> <rg> "<sub>" sql-stop
+```
+The histogram's `top_types_older` is the error tally to share before deleting. The delete goes one application at a time in short batches (the live app keeps logging), then removes orphaned `error_refs`. Several apps often share one database, so check `rows_by_application` and run the job once per database. SQL Server only; for PostgreSQL, or to run statements by hand, see [reference/sql-store.md](reference/sql-store.md).
 
 ## Report
 

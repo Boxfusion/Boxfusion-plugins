@@ -26,7 +26,7 @@ The only index useful for time filters is `ix_errors_app_time_seq (application, 
   az webapp config appsettings list --subscription "$SUB" -g "$RG" -n "$APP" --query "[?name=='DbmsType' || name=='ConnectionStrings__Default'].name" -o tsv
   ```
 - Never echo the full connection string or password into the chat. Pass it to `sqlcmd`/`psql` through an environment variable.
-- Azure SQL and Azure PostgreSQL firewalls usually block a developer IP. If the connection is refused, ask the user to add a temporary firewall rule. Do not add one silently.
+- Azure SQL and Azure PostgreSQL firewalls usually block a developer IP (Boxfusion's `auto-sql-shared-prod` only allows Azure services). Prefer `kudu-elmah.sh sql-start`, which runs `scripts/elmah-sql.js` (Linux) or `scripts/elmah-sql.ps1` (Windows) inside the app's Kudu with the app's own connection string, so neither the firewall nor the secret is touched. Only for running statements by hand: ask the user to add a temporary firewall rule. Do not add one silently.
 
 ## SQL Server
 

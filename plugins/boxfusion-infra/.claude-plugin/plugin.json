@@ -1,6 +1,6 @@
 {
     "name": "boxfusion-infra",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, including Elmah log cleanup (XML files and SQL) and app log cleanup (log4net and scheduled-job logs) on Linux and Windows App Services.",
     "author": {
         "name": "Boxfusion"
