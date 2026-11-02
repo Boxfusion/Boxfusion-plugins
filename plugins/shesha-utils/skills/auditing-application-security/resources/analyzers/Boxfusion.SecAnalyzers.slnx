@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Boxfusion.SecAnalyzers/Boxfusion.SecAnalyzers.csproj" />
+    <Project Path="src/Boxfusion.SecDriver/Boxfusion.SecDriver.csproj" />
+  </Folder>
+</Solution>
