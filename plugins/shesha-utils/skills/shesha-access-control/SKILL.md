@@ -7,6 +7,59 @@ description: Designs, documents, and implements access control for Shesha framew
 
 Design and implement comprehensive access control for Shesha-based enterprise applications using Shesha's hybrid authorization model (RBAC + Resource-Based + ABAC).
 
+## Detect → Remediate (hand-off contract)
+
+This skill is the **remediation owner** of the `access-control` sub-area in the shared security
+reverse-flow. It does not run its own catalogue scan — it **consumes** findings produced by the
+detection hub (`auditing-application-security`) and **emits** fixes plus a regression test. The
+shared contract lives in the hub and is read-only here:
+`../auditing-application-security/references/determinism-standard.md` (the determinism standard,
+`findings.json` tuple shape, normalizer/scoring key) and
+`../auditing-application-security/references/check-registry.md` (the canonical CHECK-IDs, severity
+scoring key, `root_cause` vocabulary). **Never fork or redefine those** — reference them.
+
+**Consumes** (never re-derives):
+- Normalised findings — each a tuple `{ finding_id, anchor, evidence_level, severity, plan_id }`
+  where `finding_id = <CHECK-ID>@<anchor>` (determinism-standard §0, §2). Evidence level is the
+  closed enum in §3; severity is *derived* from the scoring key, never asserted.
+- Static BOLA findings from the Roslyn **SEC_A** analyzer (gated on `buildable_backend` → else the
+  finding is `NOT-ASSESSED(no-build)`, a first-class verdict, never a silent pass).
+
+**Emits** (per consumed finding it owns):
+- a code and/or `PermissionedObject`/permission change — the remediation templates in
+  [reference/checks.md](reference/checks.md);
+- the templated `plan_id` the finding already carries — this skill owns the *content* behind
+  `access-control` `plan_id`s, but never invents a new id for an issue the registry already names
+  (one canonical `finding_id` per issue, **shared** with the hub); and
+- a named **regression test** — an invariant in the authorisation-inventory test
+  ([reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md)) or a
+  two-account probe — so the same finding cannot silently reappear.
+
+**Partition ownership:** this skill owns `--area access-control` (determinism-standard §9). It reads
+the scoring key and evidence enum; it does not edit the `findings.json` schema, the normalizer, the
+registry or the scoring key — those stay in the hub, so two runs stay byte-identical.
+
+**Registry-id → fix-anchor map** (where this skill's remediation for each detected check lives):
+
+| CHECK-ID | Issue (see check-registry.md) | Fix anchor |
+|---|---|---|
+| **SEC-A** | Client/route id trusted as identity (BOLA, Roslyn) | checks.md § SEC-A — derive actor from `GetLoggedInPersonAsync()` |
+| **C1 / C2** | Service without class-level authz / `AllowAnonymous` on a non-public endpoint | checks.md § SEC-C; SKILL § Step 4e |
+| **C5** | Entity read/write with no permission check | checks.md § SEC-A / SEC-C |
+| **D1 / D4** | Entity CRUD / internal-entity write with no permission | checks.md § SEC-C; SKILL § Step 4f, 4i |
+| **D3** | `generateAppService` inert / open dynamic CRUD | SKILL § Step 4h, 4i (dynamic-CRUD whole-table) |
+| **D5 / H5** | No `[GlobalSpecification]` (solution-wide tally / per-entity) | checks.md § SEC-S; SKILL § Step 4f |
+| **E6** | `RequiresPermissions` empty — `access:4` with an empty permission list (deny-all) | checks.md § SEC-C; SKILL § Step 4f |
+| **SEC-K** | Workflow self-approval / wrong-actor (separation of duties) | checks.md § SEC-K |
+| **SEC-L** | Property-level authz / over-posting | checks.md § SEC-L |
+| **SEC-S** | Tenant isolation absent | checks.md § SEC-S |
+| **INV-CHK** | Inverse permission-checker (`default: return false` voids all grants) | checks.md § INV-CHK; SKILL § Key Rules (custom-checker `NotImplementedException`) |
+
+Every row above is verified by an invariant of the authorisation-inventory test, which emits back
+into the shared `findings.json` tuple shape so a re-audit converges. The decision procedure that
+maps each check's INPUT→PREDICATE→VERDICT→ANCHOR→`plan_id`→regression-test→severity is
+[reference/checks.md](reference/checks.md).
+
 ## When to Use This Skill
 
 - **Auditing** existing roles, permissions, and authorization logic
@@ -77,6 +130,8 @@ Detailed patterns, examples, and the full access control guide:
 - [reference/implementation-patterns.md](reference/implementation-patterns.md) — Code templates for authorizers, specifications, API authorization, and permission checks
 - [reference/design-template.md](reference/design-template.md) — Template for access control design documents
 - [reference/api-reference.md](reference/api-reference.md) — Shesha Permission, Role, Role Assignment, and PermissionedObject (per-action permission requirements) API endpoints, DTOs, and programmatic role management patterns
+- [reference/checks.md](reference/checks.md) — The access-control audit-mode decision procedure (INPUT→PREDICATE→VERDICT→ANCHOR→`plan_id`→regression-test→severity) reusing the shared evidence enum, scoring key and registry ids; the remediation templates keyed to SEC-A/C/K/L/S + INV-CHK; and the framework-flaw → Shesha-team-report routing
+- [reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md) — Design and scaffolded xUnit template for the authorisation-inventory test: the deterministic access-control invariants, the baseline/snapshot drift policy, the capability gate (static vs live), and how each invariant emits into `findings.json`
 
 ## Workflow
 
