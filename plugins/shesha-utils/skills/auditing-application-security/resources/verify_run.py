@@ -454,6 +454,35 @@ def check_findings_index(run_dir, res):
                % fresh["findingCount"])
 
 
+def check_reproducibility(run_dir, res):
+    """The determinism gate (references/determinism-standard.md §0, §8): two builds of the same
+    catalogue must normalize to byte-identical canonical findings. Catches a check that leaked a
+    line number, a timestamp or dict-ordering into its diff tuple - the class of defect that
+    makes a 'same commit, same findings' promise quietly false."""
+    import findings as findings_mod
+    import normalize_findings as norm
+    a = findings_mod.build(run_dir)
+    b = findings_mod.build(run_dir)
+    if a is None or b is None:
+        res.warn("reproducibility", "no catalogue to build findings from - gate not run")
+        return
+    bytes_a = norm.dumps(norm.normalize(a))
+    bytes_b = norm.dumps(norm.normalize(b))
+    if bytes_a != bytes_b:
+        # Narrow it to the first differing tuple so the cause is obvious.
+        ta = {t["id"]: t for t in norm.normalize(a)["findings"]}
+        tb = {t["id"]: t for t in norm.normalize(b)["findings"]}
+        detail = sorted(set(ta) ^ set(tb))[:10] or ["tuple contents differ for a shared id"]
+        res.fail("reproducibility",
+                 "two builds of this run normalize differently - the findings are not "
+                 "reproducible", detail)
+        return
+    deterministic = [t for t in norm.normalize(a)["findings"]]
+    res.ok("reproducibility",
+           "two builds normalize byte-identically (%d deterministic finding(s) in the "
+           "acceptance diff)" % len(deterministic))
+
+
 # --------------------------------------------------------------------------------------
 
 
@@ -501,6 +530,7 @@ def main():
     check_reviewed_citations(run_dir, docs, res)
     check_posture_groups(cache_path, res)
     check_findings_index(run_dir, res)
+    check_reproducibility(run_dir, res)
 
     counts = report(res)
     if counts["FAIL"]:
