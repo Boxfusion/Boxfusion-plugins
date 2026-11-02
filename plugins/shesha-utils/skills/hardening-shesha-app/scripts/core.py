@@ -6,6 +6,7 @@ diff and writes them only when --apply is given. That keeps every check dry-run 
 from __future__ import annotations
 
 import difflib
+import hashlib
 import importlib
 import json
 import os
@@ -35,12 +36,129 @@ class Status(str, Enum):
         return {"n/a": 0, "skip": 1, "pass": 2, "warn": 3, "manual": 4, "fail": 5}[self.value]
 
 
+# ----------------------------------------------- shared determinism contract (see the
+# auditing-application-security references/determinism-standard.md and check-registry.md).
+# These three skills emit into one findings schema so two runs on the same commit converge
+# byte-for-byte. hardening is the FIX owner for the checks below; it keys off the SHARED
+# CHECK-IDs (I3/I4/J2/A10/B1/A1..) so the same issue is not double-identified between skills.
+
+class Evidence(str, Enum):
+    """How strongly an anchor's verdict is proven (determinism-standard §3). A separate axis
+    from Status and from severity: take the MAX achieved for an anchor; never upgrade on
+    confidence (an anonymous probe already *is* REPRODUCED)."""
+    REPRODUCED = "REPRODUCED"                   # live probe reached/opened it
+    CONFIRMED_IN_LOGS = "CONFIRMED-IN-LOGS"
+    VERIFIED_ARTEFACT = "VERIFIED-ARTEFACT"     # restored-DLL symbol / scanner hit / grep artefact
+    CODE_ONLY = "CODE-ONLY"                     # static source match
+    DATA_ANOMALY = "DATA-ANOMALY"
+    NOT_ASSESSED = "NOT-ASSESSED"               # a required capability was absent (carries a reason)
+
+    @property
+    def rank(self) -> int:
+        order = ["NOT-ASSESSED", "DATA-ANOMALY", "CODE-ONLY", "VERIFIED-ARTEFACT",
+                 "CONFIRMED-IN-LOGS", "REPRODUCED"]
+        return order.index(self.value)
+
+
+# Severity scoring key (determinism-standard §4 / check-registry.md). Severity is DERIVED from
+# three declared inputs, never asserted; the flat Check.severity stays only as a display alias.
+SEVERITY_BANDS = ["Info", "Low", "Medium", "High", "Critical"]
+IMPACT_CLASSES = {"auth_bypass", "data_exposure_pii", "data_integrity", "dos", "info_leak",
+                  "maintainability"}
+REACHABILITY = ["anonymous", "any_authenticated", "low_priv", "admin_only", "local_only"]
+DATA_SENSITIVITY = {"popia_special": 1, "pii_basic": 0, "business": 0, "none": 0}
+
+# base(impact_class, reachability) -> band, in REACHABILITY column order.
+_BASE_SEVERITY = {
+    "auth_bypass":       ["Critical", "High", "High", "Medium", "Low"],
+    "data_exposure_pii": ["Critical", "High", "High", "Medium", "Low"],
+    "data_integrity":    ["High", "High", "Medium", "Medium", "Low"],
+    "dos":               ["High", "Medium", "Medium", "Low", "Low"],
+    "info_leak":         ["High", "Medium", "Low", "Low", "Low"],
+    "maintainability":   ["Low", "Low", "Low", "Low", "Low"],
+}
+
+
+def score_severity(impact_class: str, reachability: str, data_sensitivity: str = "none") -> str:
+    """Pure function of the three registry inputs; capped at Critical. Evidence is not an input."""
+    base = _BASE_SEVERITY[impact_class][REACHABILITY.index(reachability)]
+    shifted = min(SEVERITY_BANDS.index(base) + DATA_SENSITIVITY[data_sensitivity],
+                  len(SEVERITY_BANDS) - 1)
+    return SEVERITY_BANDS[shifted]
+
+
+# ---- anchors (determinism-standard §2): a symbol/role, NEVER a raw line number (lines drift on
+# `dotnet format`). file:line survives only as a non-diffed `locator`.
+
+def norm_path(rel: str) -> str:
+    """repo-root-relative -> '/' separators -> lowercase the path -> strip any defensive ':\\d+'."""
+    return re.sub(r":\d+$", "", rel.replace("\\", "/")).lower()
+
+
+def member_anchor(rel: str, type_name: str, member: str) -> str:
+    """C# member anchor `<path>#<Type>.<Member>` - the path lowercased, #Symbol.Member verbatim."""
+    return f"{norm_path(rel)}#{type_name}.{member}"
+
+
+def type_anchor(rel: str, type_name: str) -> str:
+    return f"{norm_path(rel)}#{type_name}"
+
+
+def config_anchor(rel: str, key: str) -> str:
+    """appsettings key anchor `<path>#key:<Section>:<Key>`."""
+    return f"{norm_path(rel)}#key:{key}"
+
+
+def sln_anchor(token: str) -> str:
+    return f"sln:{token}"
+
+
+def enclosing_type(text: str, index: int) -> str:
+    """Best-effort name of the type/record/class declared above `index`; 'Unknown' if none."""
+    decls = list(re.finditer(r"\b(?:class|record|struct|interface)\s+(?P<name>\w+)", text[:index]))
+    return decls[-1].group("name") if decls else "Unknown"
+
+
+# ---- secret safety (determinism-standard §10): presence + length + sha256:<12> only, never the
+# value. Used by the key check and to redact diffs so a rotated secret is never echoed.
+
+def secret_fingerprint(value: str | None) -> dict:
+    if not value:
+        return {"present": False, "length": 0, "sha256_12": None}
+    return {"present": True, "length": len(value),
+            "sha256_12": "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]}
+
+
+def redact_secrets(text: str, secrets: Iterable[str]) -> str:
+    for s in secrets:
+        if s:
+            text = text.replace(s, f"«redacted {secret_fingerprint(s)['sha256_12']}»")
+    return text
+
+
 @dataclass
 class Issue:
     status: Status
     message: str
-    location: str | None = None      # "relative/path.cs:123"
+    location: str | None = None      # "relative/path.cs:123" - a non-diffed display LOCATOR only
     fixable: bool = False
+    anchor: str | None = None        # symbol/role anchor (determinism-standard §2); None -> "@none"
+    evidence: Evidence = Evidence.CODE_ONLY
+    evidence_reason: str | None = None   # required when evidence is NOT-ASSESSED
+    non_deterministic: bool = False  # a MANUAL/undecidable case the normalizer drops from the diff
+    canonical_id: str | None = None  # override the check's shared id for this one issue (e.g. A3 vs A2)
+    # optional per-issue scoring overrides (§4); None falls back to the check's declared inputs
+    impact_class: str | None = None
+    reachability: str | None = None
+    data_sensitivity: str | None = None
+
+    def finding_id(self, check_canonical_id: str) -> str:
+        return f"{self.canonical_id or check_canonical_id}@{self.anchor or 'none'}"
+
+    def scored_severity(self, check: "Check") -> str:
+        return score_severity(self.impact_class or check.impact_class,
+                              self.reachability or check.reachability,
+                              self.data_sensitivity or check.data_sensitivity)
 
 
 @dataclass
@@ -66,14 +184,59 @@ class Finding:
         return cls(check_id, worst.status, summary, issues, notes or [])
 
     def to_dict(self) -> dict:
+        # Backward-compatible shape (kept so nothing downstream breaks) PLUS the shared-schema
+        # fields per issue: a stable finding_id, the symbol anchor, the evidence level and the
+        # non-deterministic flag. file:line stays as a non-diffed `location`/`locator`.
         return {
             "check": self.check_id, "status": self.status.value, "summary": self.summary,
             "fixable": self.fixable,
             "issues": [{"status": i.status.value, "message": i.message, "location": i.location,
-                        "fixable": i.fixable} for i in self.issues],
+                        "locator": i.location, "fixable": i.fixable, "anchor": i.anchor,
+                        "evidence": i.evidence.value, "evidence_reason": i.evidence_reason,
+                        "non_deterministic": i.non_deterministic}
+                       for i in self.issues],
             "notes": self.notes,
             "blocked": self.blocked,
         }
+
+    def shared_findings(self, check: "Check") -> list[dict]:
+        """Emit the determinism-standard findings rows (one per anchor; an empty verdict is
+        `<CHECK-ID>@none`). Volatile data (paths, SHAs, time) is NOT here - it lives in run-meta."""
+        cid = check.canonical_id or check.id
+        severity = check.scored_severity()
+        common = {
+            "check_id": cid,                      # the SHARED registry id (e.g. I3, A10)
+            "hardening_check": check.id,          # this skill's local fix-owner id (kebab)
+            "severity": severity,                 # DERIVED (§4); flat value kept as an alias
+            "severity_flat": check.severity,
+            "impact_class": check.impact_class,
+            "reachability": check.reachability,
+            "data_sensitivity": check.data_sensitivity,
+            "root_cause": check.root_cause,
+            "plan_id": check.plan_id,
+            "regression_test": check.regression_test,
+            "canonical_refs": check.canonical_refs,
+        }
+        if not self.issues:
+            level = (Evidence.NOT_ASSESSED if self.status in (Status.SKIP, Status.NOT_APPLICABLE)
+                     else Evidence.CODE_ONLY)
+            return [{**common, "finding_id": f"{cid}@none", "anchor": "none",
+                     "evidence_level": level.value,
+                     "evidence_reason": self.blocked or self.summary if level is Evidence.NOT_ASSESSED else None,
+                     "non_deterministic": not check.deterministic,
+                     "status": self.status.value, "locator": None, "message": self.summary}]
+        rows = []
+        for i in self.issues:
+            rows.append({**common, "check_id": i.canonical_id or cid, "finding_id": i.finding_id(cid),
+                         "severity": i.scored_severity(check),           # per-issue (A3 Critical vs A2 High)
+                         "impact_class": i.impact_class or check.impact_class,
+                         "reachability": i.reachability or check.reachability,
+                         "data_sensitivity": i.data_sensitivity or check.data_sensitivity,
+                         "anchor": i.anchor or "none", "evidence_level": i.evidence.value,
+                         "evidence_reason": i.evidence_reason,
+                         "non_deterministic": i.non_deterministic or not check.deterministic,
+                         "status": i.status.value, "locator": i.location, "message": i.message})
+        return rows
 
 
 @dataclass
@@ -81,6 +244,7 @@ class Edit:
     path: Path              # absolute
     new_text: str | None    # None deletes the file
     description: str
+    redactions: tuple[str, ...] = ()   # secret literals to mask in the shown diff (never the file)
 
     @property
     def deletes(self) -> bool:
@@ -96,12 +260,34 @@ class NotFixable(Exception):
 class Check:
     id: str = ""                 # kebab-case, stable; used on the command line
     title: str = ""
-    severity: str = "medium"     # high | medium | low
+    severity: str = "medium"     # DERIVED display alias of scored_severity(); high | medium | low
     doc: str = ""                # e.g. "references/checks.md section 1"
     options: dict = {}           # defaults, overridable with --set <id>.<key>=<value>
 
+    # ---- shared determinism contract (check-registry.md). The canonical_id is the SHARED
+    # CHECK-ID this fix owns, so the same issue carries one id across the three skills.
+    canonical_id: str = ""               # e.g. "I3"; defaults to `id` if blank
+    canonical_refs: list[str] = []       # other registry ids this maps to (e.g. ["I2", "SEC-P"])
+    impact_class: str = "maintainability"    # §4 input
+    reachability: str = "any_authenticated"  # §4 input
+    data_sensitivity: str = "none"           # §4 input
+    root_cause: str = ""                 # RC-sec-* (§6), never free text
+    deterministic: bool = True           # DET enters the byte-identity diff; ND is quarantined (§7)
+    plan_id: str = ""                    # templated remediation id (§5), not free prose
+    regression_test: str = ""            # the exact test that proves the fix (§5)
+
+    # ---- decision procedure (one declared, reproducible rule per check)
+    decision_input: str = ""             # what the check reads
+    decision_predicate: str = ""         # the boolean rule applied to that input
+    decision_verdict: str = ""           # what each outcome means
+    anchor_strategy: str = ""            # how the anchor string is built (symbol/role, not line)
+
     def __init__(self, overrides: dict | None = None):
         self.opts = {**self.options, **(overrides or {})}
+
+    @classmethod
+    def scored_severity(cls) -> str:
+        return score_severity(cls.impact_class, cls.reachability, cls.data_sensitivity)
 
     def applies(self, repo: "Repo") -> tuple[bool, str]:
         return True, ""
@@ -310,13 +496,39 @@ class LiveBackend:
         return data.get("result") if isinstance(data, dict) else data
 
 
+# --------------------------------------------------------------------------- capability manifest
+
+def capability_manifest(repo: "Repo") -> dict:
+    """Detect each capability up front (determinism-standard §1). A check whose capability is
+    absent emits a first-class NOT-ASSESSED(reason), never a silent pass. Each value is
+    {"present": bool} or {"present": False, "reason": "..."} for the diff's manifest_delta."""
+    manifest: dict[str, dict] = {}
+
+    git_dir = (repo.root / ".git").exists()
+    manifest["git"] = ({"present": True} if git_dir
+                       else {"present": False, "reason": "NOT-ASSESSED(no .git: cannot read history / commit per check)"})
+
+    nuget = repo.nuget_root()
+    manifest["nuget_restore"] = ({"present": True} if nuget.is_dir()
+                                 else {"present": False, "reason": f"NOT-ASSESSED(NuGet cache {nuget} absent: run `dotnet restore`)"})
+
+    dll = repo.package_dll("Shesha.Application", "Shesha.Application.dll")
+    manifest["shesha_assembly_symbols"] = ({"present": True} if dll is not None
+                                           else {"present": False, "reason": "NOT-ASSESSED(Shesha assemblies not restored: capability gates fall back to the version table, an evidence downgrade)"})
+
+    manifest["live_backend"] = ({"present": True, "base_url": repo.live.base_url} if repo.live
+                                else {"present": False, "reason": "NOT-ASSESSED(no --base-url: live/effective-setting checks not reproduced)"})
+    return manifest
+
+
 # --------------------------------------------------------------------------- text helpers
 
 def diff(repo: Repo, edit: Edit) -> str:
     old = repo.read(edit.path).splitlines(keepends=True)
     new = [] if edit.deletes else edit.new_text.splitlines(keepends=True)
     rel = repo.rel(edit.path)
-    return "".join(difflib.unified_diff(old, new, f"a/{rel}", "/dev/null" if edit.deletes else f"b/{rel}"))
+    out = "".join(difflib.unified_diff(old, new, f"a/{rel}", "/dev/null" if edit.deletes else f"b/{rel}"))
+    return redact_secrets(out, edit.redactions) if edit.redactions else out
 
 
 def matching_brace(text: str, open_index: int) -> int | None:

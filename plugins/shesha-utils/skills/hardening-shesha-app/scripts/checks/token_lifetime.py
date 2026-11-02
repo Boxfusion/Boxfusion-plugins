@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import re
 
-from core import Check, Edit, Finding, Issue, NotFixable, Repo, Status, register
+from core import (Check, Edit, Evidence, Finding, Issue, NotFixable, Repo, Status, config_anchor,
+                  enclosing_type, member_anchor, register)
 
 CONFIG_KEY = "Authentication:JwtBearer:TokenLifetimeMinutes"
 ASSIGN_RE = re.compile(r"(?P<lhs>\b\w+\.Expiration\s*=\s*)(?P<rhs>[^;]+);")
@@ -60,13 +61,27 @@ class TokenLifetime(Check):
     title = "JWT access token lifetime is short"
     severity = "high"
     doc = "references/checks.md section 1"
+    # shared determinism contract (check-registry.md I3)
+    canonical_id = "I3"
+    impact_class = "auth_bypass"
+    reachability = "any_authenticated"
+    data_sensitivity = "none"
+    root_cause = "RC-sec-token"
+    deterministic = True
+    plan_id = "PLAN-token-lifetime-shorten"
+    regression_test = "scripts/test_checks.py::TokenLifetimeTests"
+    decision_input = "TokenAuthConfiguration.Expiration assignment + any Authentication:JwtBearer:* appsettings value it reads"
+    decision_predicate = "lifetime_minutes > fail_hours*60 -> FAIL; > warn_hours*60 -> WARN; else PASS"
+    decision_verdict = "FAIL/WARN = a stolen token stays valid for the whole lifetime; PASS = short-lived"
+    anchor_strategy = "code: <path>#<Type>.Expiration (role, not line); appsettings: <path>#key:<Section>:<Key>"
     options = {"minutes": 120, "warn_hours": 8, "fail_hours": 24}
 
     def _assignments(self, repo: Repo):
         files = [p for p in repo.cs_files() if "TokenAuthConfiguration" in repo.read(p)]
         return list(repo.grep(ASSIGN_RE, files))
 
-    def _judge(self, minutes: float, where: str, what: str, fixable: bool) -> Issue | None:
+    def _judge(self, minutes: float, where: str, what: str, fixable: bool,
+               anchor: str | None = None) -> Issue | None:
         if minutes > self.opts["fail_hours"] * 60:
             status = Status.FAIL
         elif minutes > self.opts["warn_hours"] * 60:
@@ -74,25 +89,31 @@ class TokenLifetime(Check):
         else:
             return None
         return Issue(status, f"token lifetime is {_fmt(minutes)} ({what}); target {_fmt(self.opts['minutes'])}",
-                     where, fixable)
+                     where, fixable, anchor=anchor, evidence=Evidence.CODE_ONLY)
 
     def scan(self, repo: Repo) -> Finding:
         hits = self._assignments(repo)
         if not hits:
-            return self.finding(Status.MANUAL, "no TokenAuthConfiguration.Expiration assignment found; "
-                                "the framework default applies - confirm what it is for this version")
+            f = self.finding(Status.MANUAL, "no TokenAuthConfiguration.Expiration assignment found; "
+                             "the framework default applies - confirm what it is for this version",
+                             issues=[Issue(Status.MANUAL, "no TokenAuthConfiguration.Expiration assignment found; "
+                                           "the framework default applies - confirm what it is for this version",
+                                           anchor="sln:token-expiration=framework-default", non_deterministic=True)])
+            return f
         issues, ok = [], []
         for path, text, m in hits:
             loc = repo.loc(path, text, m.start())
+            code_anchor = member_anchor(repo.rel(path), enclosing_type(text, m.start()), "Expiration")
             rhs = m.group("rhs")
             minutes = _hard_coded_minutes(rhs)
             if minutes is not None:
-                issue = self._judge(minutes, loc, "hard-coded", fixable=True)
+                issue = self._judge(minutes, loc, "hard-coded", fixable=True, anchor=code_anchor)
                 issues.append(issue) if issue else ok.append(f"{_fmt(minutes)} at {loc}")
                 continue
             ref = CONFIG_REF_RE.search(rhs)
             if not ref:
-                issues.append(Issue(Status.MANUAL, f"unrecognised expression `{rhs.strip()}`", loc))
+                issues.append(Issue(Status.MANUAL, f"unrecognised expression `{rhs.strip()}`", loc,
+                                    anchor=code_anchor, non_deterministic=True))
                 continue
             # configuration-driven: judge every appsettings value and the code fallback
             key = ref.group("key")
@@ -102,16 +123,20 @@ class TokenLifetime(Check):
                 if minutes is None:
                     continue
                 found = True
-                issue = self._judge(minutes, repo.rel(settings), f"{key} in appsettings", fixable=True)
+                s_anchor = config_anchor(repo.rel(settings), key)
+                issue = self._judge(minutes, repo.rel(settings), f"{key} in appsettings", fixable=True,
+                                    anchor=s_anchor)
                 issues.append(issue) if issue else ok.append(f"{_fmt(minutes)} in {repo.rel(settings)}")
             if (fb := FALLBACK_RE.search(rhs)):
                 found = True
                 minutes = float(fb.group("n"))
-                issue = self._judge(minutes, loc, "code fallback when the setting is absent", fixable=False)
+                issue = self._judge(minutes, loc, "code fallback when the setting is absent", fixable=False,
+                                    anchor=code_anchor)
                 issues.append(issue) if issue else ok.append(f"{_fmt(minutes)} fallback at {loc}")
             if not found:
                 issues.append(Issue(Status.MANUAL, f"lifetime is read from {key} but no value was found in "
-                                    "appsettings and no code fallback was recognised", loc))
+                                    "appsettings and no code fallback was recognised",
+                                    loc, anchor=config_anchor(repo.rel(path), key), non_deterministic=True))
         notes = []
         refresh = self._frontend_refreshes(repo)
         if refresh is False:
