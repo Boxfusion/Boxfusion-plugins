@@ -1,6 +1,6 @@
 ---
 name: hardening-shesha-app
-description: Scans a Shesha application repository for security misconfigurations that are fixable in the application itself (not the framework) and applies safe, minimal fixes. Current checks are over-long JWT token lifetime, token blacklist not wired into JwtBearer OnTokenValidated (so sign-out does not revoke tokens), failed-login lockout disabled or weakened, and a Hangfire dashboard guarded by the starter's app-level "admin" filter instead of the framework's UseSheshaHangfireDashboard() (applied only on Shesha versions that ship it; otherwise it warns the user to upgrade and re-run). It is pluggable, so new checks drop into scripts/checks/. Use when the user asks to harden, secure or fix security settings in a Shesha app, to remediate audit findings about token expiry, sign-out, logout, token revocation, blacklisting, account lockout or the Hangfire dashboard, or to add a new application-level security check.
+description: Scans a Shesha application repository for security misconfigurations that are fixable in the application itself (not the framework) and applies safe, minimal fixes. Current checks are over-long JWT token lifetime, token blacklist not wired into JwtBearer OnTokenValidated (so sign-out does not revoke tokens), failed-login lockout disabled or weakened, a Hangfire dashboard guarded by the starter's app-level "admin" filter instead of the framework's UseSheshaHangfireDashboard() (applied only on Shesha versions that ship it; otherwise it warns the user to upgrade and re-run), a committed or starter-default JWT signing key (SecurityKey), and over-permissive CORS (wildcard origin, or wildcard with credentials). It emits into the shared security-skills determinism schema (stable CHECK-ID@anchor finding ids, evidence levels, scored severity, a reproducible findings.json with a normalizer and differ). It is pluggable, so new checks drop into scripts/checks/. Use when the user asks to harden, secure or fix security settings in a Shesha app, to remediate audit findings about token expiry, sign-out, logout, token revocation, blacklisting, account lockout, the Hangfire dashboard, a committed JWT signing key or CORS, or to add a new application-level security check.
 ---
 
 # Hardening a Shesha application
@@ -94,6 +94,8 @@ Exit code: `0` means no FAIL, `1` means at least one FAIL (usable as a CI gate),
 | `token-blacklist` | high | JwtBearer `OnTokenValidated` calls `EnsureTokenIsNotBlacklistedAsync()`, so `SignOff` revokes the token. n/a before Shesha 0.43.19 and on 0.44.x | Adds the handler to `JwtBearerEvents` (or adds the Events block) plus the `using` | [checks.md](references/checks.md) section 2 |
 | `user-lockout` | high | Lockout is not switched off or weakened in code (framework default: on, 5 attempts, 300 s); with `--base-url`, not off in the live settings | `WithDefaultValue(false)` becomes `true`; everything else is manual | [checks.md](references/checks.md) section 3 |
 | `hangfire-dashboard` | high | `/hangfire` is mapped with the framework's `UseSheshaHangfireDashboard()` (validated token + `Pages.Hangfire`), not `UseHangfireDashboard` with the starter's app-level "admin" filter | Only if the restored Shesha.Scheduler has the extension (shesha-framework#5554): the call is replaced, the app filter file and its `using` are deleted. Otherwise it is **not applied**, with a warning to upgrade and run the skill again | [checks.md](references/checks.md) section 4 |
+| `jwt-signing-key` | high | `Authentication:JwtBearer:SecurityKey` is supplied per environment, not committed, not a known starter default, and at least 32 bytes | The committed literal is blanked (`""`); the value is removed and redacted in the diff. The user then supplies and **rotates** it via user-secrets / env | [checks.md](references/checks.md) section 5 |
+| `cors-origins` | high | CORS allows only the app's own origins; never a wildcard, never a wildcard with `AllowCredentials()` | None (the allowlist is environment-specific); reports and routes to the manual fix | [checks.md](references/checks.md) section 6 |
 
 ## Adding a check
 
@@ -117,14 +119,45 @@ hardening-shesha-app/
 └── scripts/
     ├── harden.py            # CLI: list | scan | fix [--apply [--commit]]; per-check runs + final report
     ├── gitops.py            # one commit per check, never including the user's own uncommitted edits
-    ├── core.py              # Repo, Check base class, registry, Finding/Issue/Edit, text helpers
-    ├── test_checks.py       # fixture tests for every check
+    ├── core.py              # Repo, Check base, registry, Finding/Issue/Edit, scored severity, anchors, evidence, secrets
+    ├── normalize_findings.py  # canonicalise findings.json into the shared diff surface (determinism-standard §8)
+    ├── diff_runs.py         # byte-compare two runs; onlyA/onlyB/fix_order/manifest_delta
+    ├── test_checks.py       # fixture tests for every check + the reproducibility proof
     └── checks/              # one module per check, auto-discovered
         ├── token_lifetime.py
         ├── token_blacklist.py
         ├── user_lockout.py
-        └── hangfire_dashboard.py
+        ├── hangfire_dashboard.py
+        ├── jwt_signing_key.py
+        ├── cors_origins.py
+        └── known_jwt_key_fingerprints.json   # starter-key fingerprints (hashes only, never keys)
 ```
+
+## Shared determinism contract
+
+This skill emits into the shared security-skills schema (the hub is `auditing-application-security`;
+see its `references/determinism-standard.md` and `references/check-registry.md`), so two runs on the
+same commit produce byte-identical findings. Each finding carries a stable
+`finding_id = <CHECK-ID>@<anchor>` (a **symbol/role** anchor, never a line number - `file:line`
+survives only as a non-diffed `locator`), an **evidence level** (CODE-ONLY / VERIFIED-ARTEFACT /
+REPRODUCED / NOT-ASSESSED) separate from status, and a **severity scored** from
+`{impact_class, reachability, data_sensitivity}` (the flat `severity` is kept only as a display
+alias). Where this skill's checks overlap the audit's, they reuse the **canonical** CHECK-IDs so the
+same issue is not double-identified: `token-lifetime`→I3, `token-blacklist`→I4, `user-lockout`→J2,
+`hangfire-dashboard`→A10, `jwt-signing-key`→B1 (refs I2/SEC-P), `cors-origins`→A2/A3/B3. Hardening
+remains the **fix owner** for these. MANUAL/undecidable cases are labelled `non_deterministic` and
+dropped from the acceptance diff. `findings.json` keeps all volatile data (repo path, commit, run
+time, mode) in a non-diffed `runMeta` block and a `capabilities` manifest; a capability that is
+absent (NuGet not restored, no live backend) yields a first-class `NOT-ASSESSED(reason)`, never a
+silent pass. Reproduce the acceptance test with:
+
+```bash
+python $SKILL/scripts/harden.py scan --json a.json && python $SKILL/scripts/harden.py scan --json b.json
+python $SKILL/scripts/diff_runs.py a.json b.json      # exit 0 = converged
+```
+
+**No-blame:** findings name no individual, and framework/starter-template flaws route to the
+**Shesha-team report** in `references/checks.md`, not to the application team.
 
 ## Principles
 
