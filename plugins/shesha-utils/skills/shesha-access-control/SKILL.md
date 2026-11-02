@@ -329,8 +329,14 @@ never set). Confirmed live on a real project — see
 properly-authorized AppService is the only way into an entity; check the entity's own
 `{FullName}@Create` etc. nodes too.
 
-**Leave `Get`/`GetAll` `PermissionedObject` nodes at `access: 2` (Inherited) — don't gate reads with
-a permission the way you gate mutations.** These are two different mechanisms answering two
+**Leave `Get`/`GetAll` `PermissionedObject` nodes at `access: 2` (Inherited) *only when a verified
+`[GlobalSpecification]` already filters that entity's rows* — otherwise Inherited means
+any-authenticated-can-read-everything, and the read must instead be explicitly permissioned.** This
+conditional is enforced by the authorisation-inventory test's `INV-GET-INHERITED-NEEDS-SPEC`
+invariant ([reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md)):
+a `Get`/`GetAll` left at Inherited with **no** verified spec and **no** reasoned exemption is a
+finding (H5), not an accepted default. Where a spec is confirmed present, don't gate reads with a
+permission the way you gate mutations. These are two different mechanisms answering two
 different questions, and confusing them breaks self-service access: `PermissionedObject` on an
 action answers "can this be attempted at all" (checked before anything runs), while a
 `[GlobalSpecification]` answers "which rows does this caller get back" (a filter, not a gate).
@@ -392,11 +398,22 @@ by hand; script it. See [reference/implementation-patterns.md](reference/impleme
    `Create`/`Update`/`Delete`/`Get` `PermissionedObject` nodes.
 2. Drop every `notImplemented: true` row — dead metadata for a class that no longer resolves, not a
    live entity (see api-reference.md § EntityConfig API).
-3. For everything left, classify by finding what actually consumes it: a hand-written
-   AppService/Controller in the codebase → it's "used", so match the same permission that
-   AppService's own `[SheshaAuthorize]` already requires (apply to the entity's raw dynamic
-   `Create`/`Update`/`Delete` per 4f above — leave `Get` alone). No AppService/Controller anywhere,
-   confirmed by grepping the whole repo for the class name → it's unused, disable it entirely (4h).
+3. For everything left, classify by finding what actually consumes it:
+   - **Hand-written AppService/Controller in the codebase** → it's "used", so match the same
+     permission that AppService's own `[SheshaAuthorize]` already requires (apply to the entity's raw
+     dynamic `Create`/`Update`/`Delete` per 4f above — leave `Get`/`GetAll` alone **only if a
+     verified spec protects the rows**, else permission them too).
+   - **No hand-written AppService, but the entity is genuinely managed through the generic
+     dynamic-CRUD surface** (a form/integration reads or writes it via `/api/dynamic/...` or
+     `Entities/GetAll`, confirmed — not just "no C# service exists") → this is the **whole-table**
+     case. Don't disable it; instead require that **all five** dynamic nodes are accounted for:
+     `Create`/`Update`/`Delete` explicitly permissioned, and `Get`/`GetAll` either explicitly
+     permissioned **or** left Inherited **only** behind a verified `[GlobalSpecification]`. A
+     `[GlobalSpecification]` is **required** for this case (there's no AppService to carry row-level
+     logic), and a missing one is an `INV-HAS-SPEC` finding.
+   - **No AppService/Controller anywhere and nothing consumes the dynamic surface either**, confirmed
+     by grepping the whole repo for the class name and checking forms/integrations → it's unused,
+     disable it entirely (4h), or set `generateAppService: false`.
 4. A `PermissionedObject` node **absent** for an entity does not mean it's already locked down — see
    api-reference.md's note under § "Set an object's required permission/access": rows are written on
    demand, never auto-synced, so absence means open-by-default. Don't skip an entity just because it
