@@ -32,11 +32,11 @@ The goal is a board people can follow, not a flood of tickets.
 - **PR description:**
   - what users or the business will notice;
   - the finding IDs fixed;
-  - the framework mechanisms used (`framework-standards.md`);
+  - the framework mechanisms used (`${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`);
   - tests: the reproducing test now passing, plus the e2e results (run before push);
   - rollout notes: config packages, migrations, deploy order, anything to check in production first, and **the rollback step: a read-only export of the rows each package will overwrite, taken before import** (packages can't be rolled back on their own);
   - any emergency shortcut, with its follow-up item;
   - open BA decisions.
-- **At most one open package per form across all PRs** (`framework-standards.md` caveats). If two tasks touch one form, sequence them, or put the form change in one PR.
+- **At most one open package per form across all PRs** (`${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md` caveats). If two tasks touch one form, sequence them, or put the form change in one PR.
 - Don't merge, enable auto-merge or deploy unless the user asks.
 - The test-coverage branch from Phase 0 (`tlc/test-coverage`) gets its own PR and its own task, "Test coverage to standard". Ideally it merges first, so later PRs can rely on it. In a trial run it stays local, with no PR.

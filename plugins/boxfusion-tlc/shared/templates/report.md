@@ -1,7 +1,7 @@
 <!--
 Report shape. Target about 1,300 lines for a system with 50-70 findings.
-- Critical and high findings in full (templates/finding.md, full form).
-- Medium findings as compact 10-12-line blocks (templates/finding.md, compact form): no "Why" paragraph, point to the root cause or learning digest.
+- Critical and high findings in full (${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md, full form).
+- Medium findings as compact 10-12-line blocks (${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md, compact form): no "Why" paragraph, point to the root cause or learning digest.
 - Low findings as one-line rows, each pointing to its digest pattern or root cause.
 - The summary table has a Task column and no status or test columns. Tests live in the Test index appendix.
 - No per-finding PM lines that only point back to the PM section.
@@ -84,7 +84,7 @@ Report shape. Target about 1,300 lines for a system with 50-70 findings.
 
 ## 5. Findings
 
-<Critical and high findings in rank order, in full (templates/finding.md, full form). Then medium findings as compact blocks (templates/finding.md, compact form). Then low findings as one-line rows: ID · title · fix · task · digest pattern or RC. The evidence detail lives in diagnosis/findings/<area>.md: point to it, don't copy it.>
+<Critical and high findings in rank order, in full (${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md, full form). Then medium findings as compact blocks (${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md, compact form). Then low findings as one-line rows: ID · title · fix · task · digest pattern or RC. The evidence detail lives in diagnosis/findings/<area>.md: point to it, don't copy it.>
 
 ## 6. Shesha framework issues
 

@@ -4,7 +4,7 @@
 
 ## Security division — deterministic briefing & orchestration (`--security-only`)
 
-This section makes the security division reproducible per `references/operating-standard.md`: two operators on the same commit + manifest produce the same `findings.json`. It supersedes, for security, the numeric-range and "mark evidence level honestly" guidance above.
+This section makes the security division reproducible per `${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`: two operators on the same commit + manifest produce the same `findings.json`. It supersedes, for security, the numeric-range and "mark evidence level honestly" guidance above.
 
 ### The canonical security inspector brief (fill only the placeholders)
 The orchestrator fills `{check-ids}`, `{repo-commit}`, `{tree-state}`, `{manifest}`; everything else is fixed and non-optional.
@@ -56,7 +56,7 @@ craft, ops/telemetry, forms UX, non-security code quality — name each "not in 
 --security-only", do not raise it.
 
 RETURN: file content ONLY, no preamble, starting =====BEGIN findings/security.md===== ending =====END=====.
-Use templates/finding.md per finding. List "checked and fine" and the NOT-ASSESSED set explicitly.
+Use ${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md per finding. List "checked and fine" and the NOT-ASSESSED set explicitly.
 Keep BA questions and PM concerns separate from findings.
 =====END SECURITY INSPECTOR BRIEF=====
 ```
@@ -71,7 +71,7 @@ Keep BA questions and PM concerns separate from findings.
 - **Overlap resolution (fixed priority, first match wins):** property-authorisation → SEC-L; business-flow/workflow → SEC-K; endpoint authz → SEC-C/B/A; secret → SEC-E/I. The losing check emits a one-line handover referencing the winner's `finding_id`, never a duplicate.
 - **Duplicate collapse:** identical `finding_id` ⇒ keep one, union evidence, take the MAX evidence level; take the higher severity only if computed from identical §5 inputs, else flag a determinism defect (don't average). Collapse by id equality only (the id carries the anchor) — no fuzzy/title matching.
 - **Persist + normalize:** the orchestrator emits `findings.json` (operating-standard §8 schema) alongside the prose, sorted canonically, each record tagged with `commit_sha` + manifest hash; on a propose-only run, to the external run folder, never under the app root. The markdown is derived from `findings.json` (one source of truth).
-- **Acceptance test:** `harness/run-acceptance.ps1` launches two independent operators (`--security-only --static`, same manifest) and diffs; see `harness/`.
+- **Acceptance test:** `${CLAUDE_PLUGIN_ROOT}/shared/harness/run-acceptance.ps1` launches two independent operators (`--security-only --static`, same manifest) and diffs; see `harness/`.
 
 ## All divisions — deterministic briefing & team-split (generalises the security model)
 

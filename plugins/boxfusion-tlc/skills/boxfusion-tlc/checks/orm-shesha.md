@@ -2,7 +2,7 @@
 
 Shesha lets people build systems quickly without deep database knowledge, and that is its strength. The cost is that the easy way to fetch data is often the expensive way, and it stays invisible until the data grows. These checks find where the system asks the database for far more than it needs, resolves records by the wrong key, or crosses a transaction boundary it should not.
 
-**This file obeys `references/operating-standard.md`.** Every check is a decision procedure: **INPUT → PREDICATE (boolean) → VERDICT → ANCHOR**, then **REMEDIATION (plan_id + template) → REGRESSION TEST → SEVERITY INPUTS**. A finding is raised **iff** the predicate is true and an anchor exists — no anchor ⇒ no finding, no anchor-less "smell". IDs are `ORM-X@<anchor>` (operating-standard §3) — **never** `ORM-X-1/-2/-3`; multiplicity is carried by the anchor (N anchors ⇒ N findings that collapse by identical string). Severity is scored intrinsically from the operating-standard §5 table (evidence level is a separate axis, not a severity input).
+**This file obeys `${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`.** Every check is a decision procedure: **INPUT → PREDICATE (boolean) → VERDICT → ANCHOR**, then **REMEDIATION (plan_id + template) → REGRESSION TEST → SEVERITY INPUTS**. A finding is raised **iff** the predicate is true and an anchor exists — no anchor ⇒ no finding, no anchor-less "smell". IDs are `ORM-X@<anchor>` (operating-standard §3) — **never** `ORM-X-1/-2/-3`; multiplicity is carried by the anchor (N anchors ⇒ N findings that collapse by identical string). Severity is scored intrinsically from the operating-standard §5 table (evidence level is a separate axis, not a severity input).
 
 **ORM findings are overwhelmingly forward-looking.** On starter/near-empty data with no App Insights, nothing here can be *reproduced* as an incident; the honest level is `CODE-ONLY` and the wording is "the query grows with the table…", never "this is slow in production". Severity is still the intrinsic badness *if the table grows as designed* (ground rule 4), scored against the manifest's `severity_target`, and is **never** read off the copy's row count.
 
@@ -225,7 +225,7 @@ Eager-fetching **more than one child collection** of the same root in a single q
 ## Handovers
 - **Security (SEC-C):** generic dynamic CRUD + `Entities/GetAll` for every entity on personal/employment data (ORM-E / ORM-A / ORM-I whole-graph exposure) — verify permissioned-objects + global specifications. The ORM-E custom-base record is the detection anchor; SEC-C owns scoring.
 - **SQL:** leading-wildcard `'%'+@QuickSearch+'%'` in TVF/proc migrations (ORM-B `@sql-handover`).
-- **Shesha-team candidate (`templates/shesha-team-report.md`, only after reproduced):** `ISequenceManager` separate-session gap behaviour (ORM-F-b) — a framework-session limitation, never a finding against the system's own developers.
+- **Shesha-team candidate (`${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`, only after reproduced):** `ISequenceManager` separate-session gap behaviour (ORM-F-b) — a framework-session limitation, never a finding against the system's own developers.
 
 ## Not-assessable gaps (fixed NOT-ASSESSED records, operating-standard §1)
 - Business form markup in the DB (starter data) ⇒ `ORM-A@forms`, `ORM-B@forms`, `ORM-C@forms`, `ORM-H@forms` `NOT-ASSESSED(form-markup-not-in-repo)`.

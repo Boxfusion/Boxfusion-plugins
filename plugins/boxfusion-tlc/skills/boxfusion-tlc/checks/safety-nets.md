@@ -2,7 +2,7 @@
 
 These are the tools that catch mistakes before users do — tests, CI, dependency scanners, secret scanners, lock files. Graduates often don't know they exist, or that they are broken. Explain each briefly in the report.
 
-**This file obeys `references/operating-standard.md`.** Every row is a decision procedure: **INPUT → PREDICATE (boolean) → VERDICT → ANCHOR**, then **REMEDIATION (plan_id + template) → REGRESSION TEST → SEVERITY INPUTS**. A finding is raised **iff** the predicate is true and an anchor exists. IDs are `SN-X@<anchor>` (operating-standard §3) — **never** `SN-X-1/-2`; multiplicity is carried by the anchor.
+**This file obeys `${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`.** Every row is a decision procedure: **INPUT → PREDICATE (boolean) → VERDICT → ANCHOR**, then **REMEDIATION (plan_id + template) → REGRESSION TEST → SEVERITY INPUTS**. A finding is raised **iff** the predicate is true and an anchor exists. IDs are `SN-X@<anchor>` (operating-standard §3) — **never** `SN-X-1/-2`; multiplicity is carried by the anchor.
 
 **The tool IS the instrument — do not infer from version strings.** For the three tool-backed rows (`dotnet list package --vulnerable`, `npm audit`, `gitleaks`) the authoritative verdict is the tool's own output against a real advisory/pattern database. A present tool that runs = **VERIFIED-ARTEFACT**. **A tool's ABSENCE is a first-class fixed `NOT-ASSESSED(no-<tool>)` anchor** (never "clean", never a silent pass, never a weaker-instrument substitution that keeps the strong level — a seam-grep standing in for gitleaks is a `CODE-ONLY` spot-check, not a secret scan). Scanner and compile results are `VERIFIED-ARTEFACT`, never `REPRODUCED`.
 
@@ -176,4 +176,4 @@ These are the tools that catch mistakes before users do — tests, CI, dependenc
 - an expired private-npm-feed token;
 - assertions too loose to fail (`checks/code.md` CODE-I).
 
-**Framework-defect candidates** (→ `templates/shesha-team-report.md`, only after reproduced): an in-version Shesha defect surfaced by SN-FWK/SN-STALE is never a finding against the system's own developers.
+**Framework-defect candidates** (→ `${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`, only after reproduced): an in-version Shesha defect surfaced by SN-FWK/SN-STALE is never a finding against the system's own developers.

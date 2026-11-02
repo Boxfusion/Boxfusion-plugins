@@ -37,7 +37,7 @@ Collect candidates during the run, in `diagnosis/LEARNINGS.md`:
 2. **Place it** where the skill already keeps that kind of knowledge:
    - `checks/<area>.md` (in the same what / why / detect / prove / plan shape);
    - `sql/diagnostic-queries.sql` or `references/appinsights-queries.kql`;
-   - `references/framework-standards.md` (caveats, with the Shesha version);
+   - `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md` (caveats, with the Shesha version);
    - `references/*.md` for process faults.
 3. **Don't duplicate.** If the catalogue already covers it, improve that entry instead.
 4. **Validate:**

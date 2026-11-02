@@ -24,7 +24,7 @@ An unproven critical finding's title says "The configuration allows…" or "The 
 <file:line, endpoint, procedure, form name and version. Since: <date>, <PR/commit link> if known.>
 
 **What good looks like**
-<The pattern that avoids it, in plain English, using the framework's native mechanism (see references/framework-standards.md), with a short before/after sketch where it helps.>
+<The pattern that avoids it, in plain English, using the framework's native mechanism (see ${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md), with a short before/after sketch where it helps.>
 
 **Plan of action**
 - Fix: <what to change, via which framework mechanism (.shaconfig package, specification, validator, app service command, …)>

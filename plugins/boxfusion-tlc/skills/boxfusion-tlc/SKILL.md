@@ -32,7 +32,7 @@ Many BoxFusion systems were built by developers early in their careers. The repo
 **Documents for other people,** handed to the user to pass on:
 - **The report** for the PM (summary, concerns), the BA (questions) and the developers (teaching sections).
 - **A note to pass it on:** the summary ends with *"Please pass this on to the previous developer(s) of this system, if applicable."* The skill never tries to identify who wrote what.
-- **The Shesha team report** (`templates/shesha-team-report.md`), for framework defects only. It has everything they need to act, a ready-to-paste Claude prompt, and copy-paste SR wording where an SR should be logged.
+- **The Shesha team report** (`${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`), for framework defects only. It has everything they need to act, a ready-to-paste Claude prompt, and copy-paste SR wording where an SR should be logged.
 
 ### What the user sees during a run
 
@@ -54,7 +54,7 @@ Rules:
    - Skills that can write (e.g. `harden-permissions`, `shesha-form-edit`, `clean-form-config` auto-fix) are used in read/analyse mode only.
    - **Test coverage is the exception — in the modes that write.** In `--interactive`/`--auto-fix` Phase 0 adds missing integration tests and (under `--deep`/`--e2e`) the e2e harness without asking, on a branch; it never changes application code to do so. In `--educational` and `--static` (and any read-only/propose-only or no-DB-copy run) Phase 0 **only inventories coverage and reports the gap** — it writes nothing and creates no branch. Pick the degraded behaviour whenever the invocation is read-only; don't guess.
    - Fixing starts only after every finding is agreed and the user says **"Let's begin!"**
-2. **Framework first.** See `references/framework-standards.md`. These are Shesha / ABP systems, so every fix uses the framework's native mechanism:
+2. **Framework first.** See `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`. These are Shesha / ABP systems, so every fix uses the framework's native mechanism:
    - forms, reference lists, settings, permissions and entity configuration ship in **`.shaconfig` packages**;
    - row-level rules are **specifications**;
    - validation uses **Fluent validators**;
@@ -62,7 +62,7 @@ Rules:
    - and so on.
 
    No custom JavaScript, raw SQL scripts or hand-made database edits where the framework provides a way. Shortcuts only in a genuine emergency, recorded as such with a follow-up to do it properly. The same standard applies when judging the existing system: bypassing the framework is a finding.
-3. **Data safety first:** see `references/safety-and-data-access.md`.
+3. **Data safety first:** see `${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`.
    - Work on a local copy of the **QA** database.
    - Escalate for **production** data only when a QA finding is serious enough, and likely enough to exist in production, that proving it there matters. The user asks the IT Manager, who may grant access or hand the work to senior staff.
    - Personal data never leaves the machine. Reports carry counts, not people.
@@ -89,7 +89,7 @@ Keep it to one message, and detect before asking.
    - App Insights: from appsettings or the connection string;
    - the Shesha version: from the packages.
 3. **Ask once, only for what is still missing:**
-   - a local copy of the QA database (if there is none, see `references/safety-and-data-access.md`, "Which database");
+   - a local copy of the QA database (if there is none, see `${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`, "Which database");
    - any separate front-end, mobile or USSD repos;
    - known pain points;
    - test logins, only if none were found (written only to the gitignored `.env`).
@@ -138,12 +138,12 @@ Keep it to one message, and detect before asking.
 - `--area <area>`: limit the inspection to one area (`references/team.md`, "ID ranges"). Phase 0, the fact-check and the walkthrough still run for that area's findings.
 - `--security-only`: run **only the security division** — see "The `--security-only` mode" below. For rapid, repeatable security sweeps across many systems (the primary mode after a breach), by one person over every project or by a team splitting the projects between them.
 
-**The `--security-only` mode.** A focused, shippable security sweep. It runs the security division and nothing else, to one standard, so two operators on the same repo+environment get the same security findings and the same remediation plan (`references/operating-standard.md`).
+**The `--security-only` mode.** A focused, shippable security sweep. It runs the security division and nothing else, to one standard, so two operators on the same repo+environment get the same security findings and the same remediation plan (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`).
 - **In scope:** every `checks/security.md` check (SEC-A…SEC-S — the SEC-A…SEC-O set plus the R14 coverage additions SEC-P JWT-trust, SEC-Q GraphQL data-plane, SEC-R background-job trust, SEC-S tenant isolation), plus the security-relevant checks owned by other areas that the Security reviewer already consumes as handovers — the permission-checker and trusted-header/anonymous-endpoint items in `checks/code.md` (CODE-G-1 inverse permission-checker, CODE-F-1/F-2 server-trusted scope header, CODE-G-3 anonymous test endpoints) and the workflow-in-browser items in `checks/forms.md` (FORM-G, FORM-D) that feed **SEC-K**. SEC-K stays in scope: it is cross-area, so the run still reads the forms/workflow/code it needs to trace a business flow, but only for the security question.
 - **Out of scope (say so, don't silently drop):** performance, ORM scale, SQL craftsmanship, ops/telemetry, forms UX, code quality that isn't security-relevant. The report names these as "not in scope for `--security-only` — run a full sweep for these."
 - **Phases:** 1 (recon — security-relevant facts + the Capability Manifest), 2 (security inspection; **SEC-I settings probe first**), 2b (fact-check every critical/high), 3 (proof — live probes/tests where the manifest allows), 5 (a security-only report). Phase 0 test-coverage is **inventory-only** here (no harness authoring) unless combined with `--interactive`/`--auto-fix`. Phase 8 (learn) still runs.
 - **Combines with the autonomy and depth axes:** `--security-only --educational` (read-only security report — the default and the safe one for a team sweep), `--security-only --interactive` (walk + fix the agreed security findings), `--security-only --auto-fix` (apply only the allowlisted mechanical security fixes — token lifetime, sign-out, lockout, Hangfire, CORS allow-list, security headers, gate anon elmah/swagger/graphql — via `hardening-shesha-app`). Depth (`--static`/`--quick`/`--deep`) controls live probing exactly as elsewhere.
-- **Team split (the breach-response use):** several operators each run `--security-only` on different projects, or on one large project split by the Security reviewer's own sub-areas — access-control (SEC-A/B/C/K/P/Q/S + CODE-G-1), secrets & config (SEC-E/I/O/D), input & data (SEC-G/L/M/N/H), real-time & messaging (SEC-F/J/R). Because every finding has a stable id, evidence level, scored severity and templated remediation (`references/operating-standard.md`), the per-project or per-sub-area reports merge into one consolidated picture without renumbering or re-ranking.
+- **Team split (the breach-response use):** several operators each run `--security-only` on different projects, or on one large project split by the Security reviewer's own sub-areas — access-control (SEC-A/B/C/K/P/Q/S + CODE-G-1), secrets & config (SEC-E/I/O/D), input & data (SEC-G/L/M/N/H), real-time & messaging (SEC-F/J/R). Because every finding has a stable id, evidence level, scored severity and templated remediation (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`), the per-project or per-sub-area reports merge into one consolidated picture without renumbering or re-ranking.
 
 *Internal:*
 - `--dev-mode-only` (formerly `--trial`): this system is a **skill-development subject**. Run Phases 0–5 and 8; present the board **as a proposal** (no work items, fix branches or PRs); no "Let's begin!"; Phase 6 only if asked. Learnings drive skill upgrades. **This flag is scaffolding — remove it once the skill is settled**, not a user-facing mode.
@@ -164,7 +164,7 @@ Every finding has to be proven by a test that reproduces it, and test coverage i
 - While waiting for the token, **carry on with what doesn't need the portal:** back-end integration tests and API-level specs. When the UI specs run, label their results with the portal version actually used (e.g. an older build already installed).
 - Run `npm ci` in each new worktree. A stale `node_modules` that doesn't match the lock file gives misleading failures, and some commit hooks fail without it.
 
-0. **Isolate and prove the copy** (`references/safety-and-data-access.md`, "Before any backend starts"): integrations cut off or stood in, and the canary passed, before any backend start.
+0. **Isolate and prove the copy** (`${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`, "Before any backend starts"): integrations cut off or stood in, and the canary passed, before any backend start.
 1. **Back-end inventory.**
    - Run the Step 0 inventory of `create-integration-tests` (from `shesha-utils`, or the `shesha-developer-<version>` plugin matching the system). If no version of it fits, follow its rules by hand and note the gap.
    - It maps each source project to its test project and lists which entities and app services have tests.
@@ -203,7 +203,7 @@ Every finding has to be proven by a test that reproduces it, and test coverage i
 
 The inputs come from the Start step. If only a development database exists, label it as such, and mark data and performance checks as limited.
 
-Record everything in `diagnosis/01-recon.md`, taking every fact from a command or a file, not memory. **Also emit the machine-readable Capability Manifest `manifest.json` (`references/operating-standard.md` §1)** — every field resolved by a command, never by belief: repo commit + tree-state, stack versions + `$DLL` path, and each capability (db copy + canary, backend + url, low-priv account, App Insights, private feeds, and tool presence/versions for gitleaks/ilspycmd/dotnet/sqlcmd/playwright), plus the mandatory declared `severity_target`. The manifest is what makes two runs comparable (same manifest ⇒ comparable; differences are expected only where capabilities differ). Recon prose and the manifest agree because both are built from the same commands.
+Record everything in `diagnosis/01-recon.md`, taking every fact from a command or a file, not memory. **Also emit the machine-readable Capability Manifest `manifest.json` (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md` §1)** — every field resolved by a command, never by belief: repo commit + tree-state, stack versions + `$DLL` path, and each capability (db copy + canary, backend + url, low-priv account, App Insights, private feeds, and tool presence/versions for gitleaks/ilspycmd/dotnet/sqlcmd/playwright), plus the mandatory declared `severity_target`. The manifest is what makes two runs comparable (same manifest ⇒ comparable; differences are expected only where capabilities differ). Recon prose and the manifest agree because both are built from the same commands.
 - stack and versions (.NET, ABP, the **Shesha version**, Node, DBMS). **Resolve the Shesha version from `backend/Directory.Build.props` `$(SheshaVersion)` (and `project.assets.json`), not from a prose file** — a starter's `VersionInformantion.md` / README often states the *starter-template* version (e.g. "v0.30.1") which is NOT the framework version, and the per-project `.csproj` references the MSBuild variable `$(SheshaVersion)` rather than a literal, so a csproj grep for a version number finds nothing. Cross-check with `@shesha-io/reactjs` in the portal. **Also record the DBMS(es):** a Shesha starter is often **dual-DBMS (SQL Server + PostgreSQL)** — note which the system actually runs, because the SQL checks and tooling assume SQL Server (see `checks/sql.md`). **Verify VCS state with `git rev-parse` / `git status`, not the environment banner** — the harness "Is a git repository" line is sometimes wrong (it has reported `false` for a repo with thousands of commits).
 - **module map (multi-module systems):** list the back-end modules and front-end portals (and their individual package versions — portals drift). Emit this map so inspectors partition by module; the `team.md` ID ranges assume one or two modules, so for N modules give each module its own ID band (e.g. `FORM-<module#>00..`) rather than the fixed two-way split.
 - the main entities and roles, and how access is meant to be restricted;
@@ -222,7 +222,7 @@ Before launching, the main session assigns **topic ownership** and **ID ranges**
 
 **Run the settings probe first** (`checks/security.md` SEC-I). On Shesha 0.43.x–0.44.x it can find secrets readable anonymously (confirmed present through 0.44.2 by decompile; re-verify per version). A hit is an urgent stop (see "What the user sees during a run").
 
-Launch the specialists in `references/team.md` **in parallel**. Each gets its check file, `01-recon.md`, `00-test-readiness.md`, its topic list and `references/framework-standards.md`:
+Launch the specialists in `references/team.md` **in parallel**. Each gets its check file, `01-recon.md`, `00-test-readiness.md`, its topic list and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`:
 
 | Role | Check catalogue |
 |---|---|
@@ -233,7 +233,7 @@ Launch the specialists in `references/team.md` **in parallel**. Each gets its ch
 | Security reviewer | `checks/security.md` |
 | Forms analyst | `checks/forms.md` |
 
-Each returns findings in the `templates/finding.md` format, plus "checked and fine", questions for the BA and concerns for the PM. Subagents may be unable to write files, so **the main session saves** each area file to `diagnosis/findings/<area>.md`, using the method in `references/team.md` → "Saving hand-backs". Hand-backs are saved, not shown to the user. Inspectors leave the working tree exactly as they found it: check `git status` before and after.
+Each returns findings in the `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md` format, plus "checked and fine", questions for the BA and concerns for the PM. Subagents may be unable to write files, so **the main session saves** each area file to `diagnosis/findings/<area>.md`, using the method in `references/team.md` → "Saving hand-backs". Hand-backs are saved, not shown to the user. Inspectors leave the working tree exactly as they found it: check `git status` before and after.
 
 ### Phase 2b: fact-check (mandatory)
 
@@ -245,9 +245,9 @@ The **Tester** reproduces every critical and high finding, plus every anomaly, *
 - an integration test for back-end rules, access checks and data handling;
 - an e2e spec for user journeys and forms.
 
-The test fails today and must pass after the fix. Keep these tests on the `tlc/test-coverage` branch; they become the regression tests. Follow `references/safety-and-data-access.md`: synthetic `ZZ-PROBE` users and records, backup and restore, code matching the deployed version when proving production behaviour.
+The test fails today and must pass after the fix. Keep these tests on the `tlc/test-coverage` branch; they become the regression tests. Follow `${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`: synthetic `ZZ-PROBE` users and records, backup and restore, code matching the deployed version when proving production behaviour.
 
-**Access-control findings are proven over HTTP** (see the 0.43 non-virtual caveat in `references/framework-standards.md`).
+**Access-control findings are proven over HTTP** (see the 0.43 non-virtual caveat in `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`).
 
 **A failing test counts as proof only when it fails for the right reason.**
 - The assertion message must show the finding's behaviour (e.g. "expected 403, got 200 with 12 rows"), not a login failure, a setup error, a timeout or a missing seed.
@@ -264,9 +264,9 @@ The **Senior Engineer** merges the area files, and the main session writes the r
 
 ### Phase 5: reports
 
-- **`diagnosis/findings.json` — the canonical, diffable output, emitted first; `REPORT.md` is derived from it** (`references/operating-standard.md` §8). One record per finding: `{finding_id, check_id, area, anchor, evidence_level, execution_class, severity, severity_inputs, plan_id, root_cause, fix_order_rank, sources[], not_assessed_reason}`, sorted canonically (severity band → area → check_id → anchor), tagged with the manifest `commit_sha` + hash. This single source is what prevents a finding carrying two different evidence levels in two files, and it is the acceptance-test diff surface (`harness/`). For the migrated areas (security first) ids are `CHECK-ID@anchor` with no ordinal; other areas keep `<PREFIX>-<n>` until migrated.
-- `diagnosis/REPORT.md` from `templates/report.md`, rendered **from `findings.json`**. The report shape (size target, full, compact and one-line findings, Test index) is in the comment at the top of that template.
-- `diagnosis/SHESHA-TEAM-REPORT.md` from `templates/shesha-team-report.md`, if there are framework defects, including candidates still to reproduce.
+- **`diagnosis/findings.json` — the canonical, diffable output, emitted first; `REPORT.md` is derived from it** (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md` §8). One record per finding: `{finding_id, check_id, area, anchor, evidence_level, execution_class, severity, severity_inputs, plan_id, root_cause, fix_order_rank, sources[], not_assessed_reason}`, sorted canonically (severity band → area → check_id → anchor), tagged with the manifest `commit_sha` + hash. This single source is what prevents a finding carrying two different evidence levels in two files, and it is the acceptance-test diff surface (`harness/`). For the migrated areas (security first) ids are `CHECK-ID@anchor` with no ordinal; other areas keep `<PREFIX>-<n>` until migrated.
+- `diagnosis/REPORT.md` from `${CLAUDE_PLUGIN_ROOT}/shared/templates/report.md`, rendered **from `findings.json`**. The report shape (size target, full, compact and one-line findings, Test index) is in the comment at the top of that template.
+- `diagnosis/SHESHA-TEAM-REPORT.md` from `${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`, if there are framework defects, including candidates still to reproduce.
 - Tell the user in a few lines that the report is ready, with its path and the three things that matter most. Then start the walkthrough (or, in `--dev-mode-only` mode, present the board as a proposal).
 
 ### Phase 6: walkthrough
@@ -289,7 +289,7 @@ Not in `--dev-mode-only`. Reached on "Let's begin!" (`--interactive`), or straig
 3. Hand each remaining task to an engineer session with:
    - its findings and plan;
    - its reproducing and regression tests;
-   - `framework-standards.md`;
+   - `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`;
    - the instruction: "use the framework's native mechanism".
 
    Never run two engineers on the same files.
@@ -309,13 +309,13 @@ Follow `references/self-improvement.md`.
 - `TRIAL-NOTES.md`: trial lessons and the changelog per run (not loaded during runs).
 - `references/vision.md`: the product owner's requirements (V1–V28). Read when changing the skill, not during runs.
 - `references/team.md`: role briefs, topic ownership, ID ranges, saving hand-backs, fact-check, how to launch and consolidate, staffing.
-- `references/framework-standards.md`: the Shesha / ABP way to do each kind of fix; known caveats; shortcuts to flag.
+- `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`: the Shesha / ABP way to do each kind of fix; known caveats; shortcuts to flag.
 - `references/work-items-and-prs.md`: the board structure, task consolidation and PR conventions.
 - `references/self-improvement.md`: how the skill turns new problem types into reviewed upgrades (reviewer: Igor Kors).
-- `references/safety-and-data-access.md`: QA first, production escalation, isolation and canary, PII, synthetic logins.
+- `${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`: QA first, production escalation, isolation and canary, PII, synthetic logins.
 - `references/skills-to-use.md`: existing skills per phase and role, install commands, and slots for new ones.
 - `references/walkthrough.md`: Agree / Discuss, then "Let's begin!".
 - `references/appinsights-queries.kql`: aggregate, PII-masked telemetry queries.
 - `checks/*.md`: the check catalogue per area: `code.md`, `forms.md`, `operations.md`, `orm-shesha.md`, `safety-nets.md`, `security.md`, `sql.md`.
 - `sql/diagnostic-queries.sql`: SQL Server checks. Run with `sqlcmd -i`.
-- `templates/report.md`, `templates/finding.md`, `templates/shesha-team-report.md`.
+- `${CLAUDE_PLUGIN_ROOT}/shared/templates/report.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`.
