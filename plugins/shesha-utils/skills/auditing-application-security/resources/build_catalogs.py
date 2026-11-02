@@ -39,7 +39,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from catalog_schema import normalise_rows  # noqa: E402
+from catalog_schema import (normalise_rows, finding_meta, anchor_member,  # noqa: E402
+                            anchor_key)
 from shesha_audit import (ACCESS, DYN_RE, Ownership, SVC_RE, cache_dir,  # noqa: E402
                           ensure_dir, latest_run_dir, load_surface,
                           lookup_action_record, new_run_dir, read_json, unwrap,
@@ -1351,6 +1352,25 @@ STARTUP_SEVERITY = {
     "B5-smtp": ("HIGH", "present"),
 }
 
+# Symbol-based (never line-based) anchors for the A-group Startup.cs checks, per the check
+# registry's anchor forms. Everything not named here anchors on Startup.Configure.
+STARTUP_ANCHOR_SYMBOL = {
+    "A9-auth-filter": "Startup.ConfigureServices",
+    "A4-graphql-playground": "UseGraphQLPlayground",
+    "A5-swagger-ui": "UseSwaggerUI",
+    "A5-swagger": "UseSwagger",
+    "A10-hangfire": "UseHangfireDashboard",
+    "A11-elmah": "UseElmah",
+}
+# Config-key anchors for the B-group appsettings checks (`<path>#key:<Section>:<Key>`).
+SETTINGS_ANCHOR_KEY = {
+    "B1-jwt-key": "Authentication:JwtBearer:SecurityKey",
+    "B2-passphrase": "EncryptionPassPhrase",
+    "B3-cors-origins": "App:CorsOrigins",
+    "B4-conn-password": "ConnectionStrings:Default",
+    "B5-smtp": "credential",
+}
+
 
 def package_for_file(rel, proj_modules, frontends):
     r = (rel or "").replace("\\", "/")
@@ -1368,9 +1388,9 @@ def build_other_findings(d, proj_modules, frontends):
     fid = collections.Counter()
 
     def add(package, category, title, severity_hint, evidence, recommendation,
-            status="FAIL"):
+            status="FAIL", meta=None):
         fid[package] += 1
-        out[package].append({
+        row = {
             "id": "%s-%d" % (category[:3].upper(), fid[package]),
             "category": category,
             "title": title,
@@ -1379,7 +1399,11 @@ def build_other_findings(d, proj_modules, frontends):
             "evidence": evidence,
             "recommendationHint": recommendation,
             "reviewRequired": True,
-        })
+        }
+        # Determinism block (references/determinism-standard.md). When no originating check id
+        # is known, mark the row non-deterministic so the normalizer drops it from the diff.
+        row.update(meta or finding_meta(None, None, category=category))
+        out[package].append(row)
 
     for finding in ((d["source"] or {}).get("findings") or []):
         check = finding.get("check")
@@ -1393,28 +1417,41 @@ def build_other_findings(d, proj_modules, frontends):
             pkg = package_for_file(finding.get("file"), proj_modules, frontends)
             locs = ["%s:%s" % (finding.get("file"), l["line"])
                     for l in finding.get("locations", [])[:4]] or [finding.get("file")]
+            path = finding.get("file")
+            first_line = (finding.get("locations") or [{}])[0].get("line")
+            locator = ("%s:%s" % (path, first_line)) if first_line else path
+            if check.startswith("A"):
+                symbol = STARTUP_ANCHOR_SYMBOL.get(check, "Startup.Configure")
+                anchor = anchor_member(path, symbol)
+            else:  # B-group settings key, line kept out of the anchor
+                anchor = anchor_key(path, SETTINGS_ANCHOR_KEY.get(check, "credential"))
             add(pkg, "web-host-configuration" if check.startswith("A")
                 else "settings-and-secrets",
                 "%s (%s)" % (finding.get("label"), check), severity, locs,
                 "See references/app-vulnerability-baseline.md section %s and "
-                "references/remediation-guide.md." % check[0])
+                "references/remediation-guide.md." % check[0],
+                meta=finding_meta(check, anchor, "CODE-ONLY", locator))
         if check == "C1-C6":
             for svc in finding.get("services", []):
                 if svc["hasAnyAuthAttribute"] or not svc["isControllerBase"]:
                     continue
                 pkg = package_for_file(svc["file"], proj_modules, frontends)
+                type_name = os.path.basename(svc["file"])[:-3]  # strip ".cs", keep casing
                 add(pkg, "controller-without-authorization",
                     "%s is a hand-routed controller with no authorization attribute"
                     % os.path.basename(svc["file"]), "HIGH",
                     ["%s (%d endpoints)" % (svc["file"], len(svc["httpEndpoints"]))],
                     "A hand-routed controller has no per-action PermissionedObject row to "
-                    "tighten, so this must be fixed in source: add [SheshaAuthorize].")
+                    "tighten, so this must be fixed in source: add [SheshaAuthorize].",
+                    meta=finding_meta(check, anchor_member(svc["file"], type_name),
+                                      "CODE-ONLY", svc["file"]))
         if check == "D5-specifications" and not finding.get("found"):
             add("_repository", "row-level-security",
                 "No global specifications anywhere in the application", "HIGH",
                 ["backend/src (no ShaSpecification<T> or [GlobalSpecification])"],
                 "Every authenticated user sees every row of every entity. See "
-                "references/remediation-guide.md, 'Restricting rows'.")
+                "references/remediation-guide.md, 'Restricting rows'.",
+                meta=finding_meta(check, "sln:global-specifications=0", "CODE-ONLY"))
 
     for finding in ((d["posture"] or {}).get("findings") or []):
         check = finding.get("check", "")
@@ -1434,25 +1471,31 @@ def build_other_findings(d, proj_modules, frontends):
             add("_repository", "token-policy", "JWT signing key is weak (%s)" % verdict,
                 "CRITICAL", [finding.get("note")],
                 "Replace the key with 32+ random bytes supplied per environment, then "
-                "rotate. See references/remediation-guide.md, 'Rotating the signing key'.")
+                "rotate. See references/remediation-guide.md, 'Rotating the signing key'.",
+                meta=finding_meta("T2-signing-key",
+                                  "sln:key:Authentication:JwtBearer:SecurityKey", "CODE-ONLY"))
         if check.startswith("T3") and verdict == "TOKEN-STILL-VALID-AFTER-SIGNOFF":
             add("_repository", "token-policy",
                 "A token stays valid after SignOff", "MEDIUM",
                 ["probe %s: before=%s after=%s" % (finding.get("probe"),
                                                    finding.get("beforeStatus"),
                                                    finding.get("afterStatus"))],
-                "Shorten the token lifetime; a stateless JWT cannot be revoked.")
+                "Shorten the token lifetime; a stateless JWT cannot be revoked.",
+                meta=finding_meta("T3-signoff-invalidates",
+                                  "http:POST /api/TokenAuth/SignOff", "REPRODUCED"))
         if check.startswith("T1") and (finding.get("lifetimeHours") or 0) > 24:
             add("_repository", "token-policy",
                 "Token lifetime is %s hours" % finding.get("lifetimeHours"), "MEDIUM",
                 ["alg=%s" % finding.get("alg")],
-                "Reduce to hours. A leaked token is usable for its whole lifetime.")
+                "Reduce to hours. A leaked token is usable for its whole lifetime.",
+                meta=finding_meta("T1-token", "token:lifetime", "REPRODUCED"))
         if check.startswith("R1") and verdict == "NONE-CONFIGURED":
             add("_repository", "rate-limiting",
                 "No rate limiting and no account lockout is configured", "HIGH",
                 [json.dumps(finding.get("hits") or {})[:300]],
                 "Add ASP.NET rate limiting and enable account lockout. See "
-                "references/remediation-guide.md, 'Rate limiting and lockout'.")
+                "references/remediation-guide.md, 'Rate limiting and lockout'.",
+                meta=finding_meta("R1-rate-limiting", "sln:rate-limiter=absent", "CODE-ONLY"))
         if check.startswith("G1") and finding.get("count"):
             for hit in finding.get("hits", [])[:20]:
                 pkg = package_for_file(hit.get("file"), proj_modules, frontends)
@@ -1464,14 +1507,22 @@ def build_other_findings(d, proj_modules, frontends):
                      % (hit.get("file"), hit.get("line"), hit.get("length"),
                         hit.get("fingerprint") or "no fingerprint recorded")],
                     "Move it to per-environment configuration and ROTATE it - removing the "
-                    "line leaves it in git history.")
+                    "line leaves it in git history.",
+                    # G1 -> B7. Line out of the anchor; fingerprint is the committed-vs-value
+                    # discriminator, never the value itself.
+                    meta=finding_meta(
+                        "G1-secrets-in-tracked-config",
+                        anchor_key(hit.get("file"), hit.get("pattern") or "secret"),
+                        "VERIFIED-ARTEFACT",
+                        "%s:%s" % (hit.get("file"), hit.get("line"))))
         if check.startswith("D1") and finding.get("count"):
             add("_repository", "dependency-advisory",
                 "%d vulnerable NuGet package(s)" % finding.get("count"), "MEDIUM",
                 ["%s %s (%s)" % (p["package"], p["resolved"], p["severity"])
                  for p in finding.get("packages", [])[:12]],
                 "Upgrade the direct runtime dependencies first; separate build-only "
-                "advisories from runtime ones before rating this.")
+                "advisories from runtime ones before rating this.",
+                meta=finding_meta("D1-dotnet-vulnerable", "dep:nuget:*", "VERIFIED-ARTEFACT"))
         if check.startswith("D2"):
             summary = finding.get("summary") or {}
             bad = sum(v for k, v in summary.items()
@@ -1480,12 +1531,18 @@ def build_other_findings(d, proj_modules, frontends):
                 add(finding.get("frontend") or "_repository", "dependency-advisory",
                     "npm audit did not run", "INFO", [finding.get("note")],
                     "Run it manually; a tool-not-found is not a clean result.",
-                    status="SKIP")
+                    status="SKIP",
+                    meta=finding_meta("D2-npm-audit",
+                                      "dep:npm:%s" % (finding.get("frontend") or "?"),
+                                      "NOT-ASSESSED"))
             elif bad:
                 add(finding.get("frontend") or "_repository", "dependency-advisory",
                     "%d critical/high npm advisories" % bad, "MEDIUM",
                     [json.dumps(summary)],
-                    "Separate runtime from build-only packages before rating.")
+                    "Separate runtime from build-only packages before rating.",
+                    meta=finding_meta("D2-npm-audit",
+                                      "dep:npm:%s" % (finding.get("frontend") or "?"),
+                                      "VERIFIED-ARTEFACT"))
         if check.startswith("D") and finding.get("skipped"):
             add("_repository", "dependency-advisory",
                 "Dependency scan skipped (%s)" % check, "INFO",
