@@ -79,7 +79,9 @@
 | D4 | Join/audit/internal entity exposed for write | data_integrity | any_authenticated | business | `db:<Entity>` | **ND** | RC-sec-no-authz |
 | D5 | No global specification anywhere (row-level) | data_exposure_pii | any_authenticated | pii_basic | `sln:global-specifications=0` | DET absence / **ND** "required" | RC-sec-no-rowfilter |
 
-*Severity fix: D5 is **Medium** repo-wide (the per-entity "personal-data entity lacks a spec" is **H5 → High**). Resolves the baseline-MEDIUM vs code-HIGH mismatch by splitting the solution-wide absence (tally, Info-to-Medium) from the per-entity finding (H5).*
+*D5 **derives High** (data_exposure_pii × any_authenticated): a solution with **no** global specification anywhere has no row-level security at all — any authenticated user can read any row. The per-entity "this PII entity lacks a spec" is the same defect at entity granularity (H5, also High). The scoring table governs; an earlier draft said Medium and is superseded (resolves the baseline-vs-code severity flag from the harness worker).*
+
+**root_cause registrations** (determinism-standard §6): `RC-sec-bola` (SEC-A, H1–H4), `RC-sec-pii-logging` (SEC-H), `RC-sec-cors`, `RC-sec-headers`, `RC-sec-committed-secret`, `RC-sec-no-authz`, `RC-sec-no-rowfilter`, `RC-sec-token`, `RC-sec-weak-auth`, `RC-sec-dos`, `RC-sec-starter-surface`, `RC-sec-rt-trust`, `RC-sec-config`, `RC-sec-deps`, `RC-sec-authz-filter`, `RC-sec-orphaned-permission` (SEC-U) — the closed `RC-sec-*` set.
 
 ---
 
@@ -154,7 +156,8 @@
 | CHECK-ID | title | impact_class | reach | data_sens | DET/ND | owner |
 |---|---|---|---|---|---|---|
 | SEC-A | Client/route id trusted as identity (BOLA, static) | auth_bypass | any_authenticated | pii_basic | **Roslyn** (DET via analyzer) | auditing detect → access-control fix |
-| SEC-H | POPIA personal data in a log call | data_exposure_pii | n/a | popia_special | **Roslyn** (DET via analyzer) | auditing |
+| SEC-H | POPIA personal data in a log call | data_exposure_pii | admin_only | popia_special | **Roslyn** (DET via analyzer) | auditing |
+| SEC-U | Orphaned / unused permission (granted to no role, or required by no endpoint) | maintainability | local_only | none | DET | auditing detect → access-control fix |
 | SEC-K | Workflow self-approval / wrong-actor | auth_bypass | any_authenticated | business | **ND** (probe + semantic) | access-control |
 | SEC-L | Property-level authz / over-posting | data_integrity | any_authenticated | business | **ND** | access-control |
 | SEC-M | Mass-import endpoint unguarded | auth_bypass | any_authenticated | business | DET (catalogue) | auditing |
