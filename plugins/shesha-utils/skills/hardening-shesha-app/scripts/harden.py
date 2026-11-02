@@ -17,15 +17,17 @@ Exit code: 0 = nothing failed, 1 = at least one check failed, 2 = usage error.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import (Check, Edit, Finding, LiveBackend, NotFixable, Repo, Status, diff,  # noqa: E402
-                  load_checks)
+from core import (Check, Edit, Finding, LiveBackend, NotFixable, Repo, Status, capability_manifest,  # noqa: E402
+                  diff, load_checks)
 from gitops import Git, GitError  # noqa: E402
 
 ICON = {Status.PASS: "PASS", Status.WARN: "WARN", Status.FAIL: "FAIL", Status.MANUAL: "MANUAL",
@@ -48,7 +50,8 @@ def parse_args(argv):
                    help="override a check option, e.g. token-lifetime.minutes=60")
     p.add_argument("--base-url", help="running backend for live checks, e.g. http://localhost:21021")
     p.add_argument("--username", help="admin user for live checks")
-    p.add_argument("--password", help="prefer the SHESHA_ADMIN_PASSWORD environment variable")
+    p.add_argument("--password", help="DEPRECATED - use SHESHA_ADMIN_PASSWORD; a password on the "
+                   "command line leaks into shell history and the process table")
     return p.parse_args(argv)
 
 
@@ -216,9 +219,12 @@ def main(argv=None) -> int:
 
     live = None
     if args.base_url:
-        password = args.password or os.environ.get("SHESHA_ADMIN_PASSWORD")
+        if args.password:
+            print("WARNING: --password is deprecated; put the password in SHESHA_ADMIN_PASSWORD instead "
+                  "(it is reported only by presence and length, never echoed).", file=sys.stderr)
+        password = os.environ.get("SHESHA_ADMIN_PASSWORD") or args.password
         if not (args.username and password):
-            sys.exit("--base-url needs --username and a password (SHESHA_ADMIN_PASSWORD or --password)")
+            sys.exit("--base-url needs --username and a password in SHESHA_ADMIN_PASSWORD")
         live = LiveBackend(args.base_url, args.username, password)
 
     repo = Repo(Path(args.repo), live)
@@ -258,11 +264,41 @@ def main(argv=None) -> int:
     print_report(repo, results)
     print_final_report(rows, mode)
     if args.json:
-        Path(args.json).write_text(json.dumps({
-            "repo": str(repo.root), "sheshaVersion": repo.shesha_version(), "mode": mode,
-            "report": [r.to_dict() for r in rows],
-            "findings": [f.to_dict() for _, f in results]}, indent=2), encoding="utf-8")
+        Path(args.json).write_text(json.dumps(
+            build_findings_document(repo, mode, rows, results), indent=2), encoding="utf-8")
     return 1 if any(f.status == Status.FAIL for _, f in results) else 0
+
+
+def _commit_sha(root: Path) -> str | None:
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True)
+        return out.stdout.strip() or None if out.returncode == 0 else None
+    except OSError:
+        return None
+
+
+def build_findings_document(repo: Repo, mode: str, rows, results) -> dict:
+    """The findings.json. The shared-schema `findings` array is the diff surface (one row per
+    anchor, determinism-standard §2-§6). Everything volatile - repo path, commit sha, run time,
+    mode - lives in `runMeta`, which the normalizer strips so two runs converge byte-for-byte.
+    `report` and `checks` are kept for backward compatibility."""
+    findings = []
+    for check, f in results:
+        findings += f.shared_findings(check)
+    return {
+        "schema": "hardening-shesha-app/findings@1",
+        "runMeta": {                                  # NOT in the diff (stripped by normalize_findings.py)
+            "repo": str(repo.root),
+            "sheshaVersion": repo.shesha_version(),
+            "mode": mode,
+            "generated": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "commit": _commit_sha(repo.root),
+        },
+        "capabilities": capability_manifest(repo),    # §1 manifest; absent -> NOT-ASSESSED(reason)
+        "report": [r.to_dict() for r in rows],        # back-compat: the final-report table rows
+        "checks": [f.to_dict() for _, f in results],  # back-compat: the old detailed per-check findings
+        "findings": findings,                         # the shared diff surface
+    }
 
 
 if __name__ == "__main__":
