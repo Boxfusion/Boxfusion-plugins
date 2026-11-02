@@ -7,6 +7,59 @@ description: Designs, documents, and implements access control for Shesha framew
 
 Design and implement comprehensive access control for Shesha-based enterprise applications using Shesha's hybrid authorization model (RBAC + Resource-Based + ABAC).
 
+## Detect → Remediate (hand-off contract)
+
+This skill is the **remediation owner** of the `access-control` sub-area in the shared security
+reverse-flow. It does not run its own catalogue scan — it **consumes** findings produced by the
+detection hub (`auditing-application-security`) and **emits** fixes plus a regression test. The
+shared contract lives in the hub and is read-only here:
+`../auditing-application-security/references/determinism-standard.md` (the determinism standard,
+`findings.json` tuple shape, normalizer/scoring key) and
+`../auditing-application-security/references/check-registry.md` (the canonical CHECK-IDs, severity
+scoring key, `root_cause` vocabulary). **Never fork or redefine those** — reference them.
+
+**Consumes** (never re-derives):
+- Normalised findings — each a tuple `{ finding_id, anchor, evidence_level, severity, plan_id }`
+  where `finding_id = <CHECK-ID>@<anchor>` (determinism-standard §0, §2). Evidence level is the
+  closed enum in §3; severity is *derived* from the scoring key, never asserted.
+- Static BOLA findings from the Roslyn **SEC_A** analyzer (gated on `buildable_backend` → else the
+  finding is `NOT-ASSESSED(no-build)`, a first-class verdict, never a silent pass).
+
+**Emits** (per consumed finding it owns):
+- a code and/or `PermissionedObject`/permission change — the remediation templates in
+  [reference/checks.md](reference/checks.md);
+- the templated `plan_id` the finding already carries — this skill owns the *content* behind
+  `access-control` `plan_id`s, but never invents a new id for an issue the registry already names
+  (one canonical `finding_id` per issue, **shared** with the hub); and
+- a named **regression test** — an invariant in the authorisation-inventory test
+  ([reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md)) or a
+  two-account probe — so the same finding cannot silently reappear.
+
+**Partition ownership:** this skill owns `--area access-control` (determinism-standard §9). It reads
+the scoring key and evidence enum; it does not edit the `findings.json` schema, the normalizer, the
+registry or the scoring key — those stay in the hub, so two runs stay byte-identical.
+
+**Registry-id → fix-anchor map** (where this skill's remediation for each detected check lives):
+
+| CHECK-ID | Issue (see check-registry.md) | Fix anchor |
+|---|---|---|
+| **SEC-A** | Client/route id trusted as identity (BOLA, Roslyn) | checks.md § SEC-A — derive actor from `GetLoggedInPersonAsync()` |
+| **C1 / C2** | Service without class-level authz / `AllowAnonymous` on a non-public endpoint | checks.md § SEC-C; SKILL § Step 4e |
+| **C5** | Entity read/write with no permission check | checks.md § SEC-A / SEC-C |
+| **D1 / D4** | Entity CRUD / internal-entity write with no permission | checks.md § SEC-C; SKILL § Step 4f, 4i |
+| **D3** | `generateAppService` inert / open dynamic CRUD | SKILL § Step 4h, 4i (dynamic-CRUD whole-table) |
+| **D5 / H5** | No `[GlobalSpecification]` (solution-wide tally / per-entity) | checks.md § SEC-S; SKILL § Step 4f |
+| **E6** | `RequiresPermissions` empty — `access:4` with an empty permission list (deny-all) | checks.md § SEC-C; SKILL § Step 4f |
+| **SEC-K** | Workflow self-approval / wrong-actor (separation of duties) | checks.md § SEC-K |
+| **SEC-L** | Property-level authz / over-posting | checks.md § SEC-L |
+| **SEC-S** | Tenant isolation absent | checks.md § SEC-S |
+| **INV-CHK** | Inverse permission-checker (`default: return false` voids all grants) | checks.md § INV-CHK; SKILL § Key Rules (custom-checker `NotImplementedException`) |
+
+Every row above is verified by an invariant of the authorisation-inventory test, which emits back
+into the shared `findings.json` tuple shape so a re-audit converges. The decision procedure that
+maps each check's INPUT→PREDICATE→VERDICT→ANCHOR→`plan_id`→regression-test→severity is
+[reference/checks.md](reference/checks.md).
+
 ## When to Use This Skill
 
 - **Auditing** existing roles, permissions, and authorization logic
@@ -40,7 +93,7 @@ Design and implement comprehensive access control for Shesha-based enterprise ap
 
 **File Placement**: All access control artifacts MUST be placed under an `AccessControl/` folder in the application layer module. This includes permission constants, role constants, authorizer interfaces/implementations, and permission-based global specifications (data-level access control). Only specifications that encode domain/business rules (not permission checks) belong in the Domain layer. See [reference/implementation-patterns.md](reference/implementation-patterns.md) § Folder Structure for the full layout.
 
-**Verify the framework API shape before writing a single line of specification/authorizer code — do not trust this skill's code samples as-is.** The exact members of `ShaSpecification<T>`, `ICurrentUser`/`IShaPermissionChecker`, and whether `BuildExpression`/`BuildExpressionAsync` is sync or async, differ across Shesha versions and have been wrong in this skill's own examples before (an older pass assumed `ICurrentUser.HasPermissionAsync`/`GetPermissionScope`/`IsPermissionScopedToEntity` and an async `BuildExpressionAsync()` existed in a project that actually shipped `Shesha.Framework` 0.43.37, where none of that is true — the real, verified members were `ShaSpecification<T>.BuildExpression()` (synchronous) and `IShaPermissionChecker.IsGranted(userId, permissionName, entityRef)`). Before implementing:
+**Verify the framework API shape before writing a single line of specification/authorizer code — do not trust this skill's code samples as-is.** The exact members of `ShaSpecification<T>`, `ICurrentUser`/`IShaPermissionChecker`, and whether `BuildExpression`/`BuildExpressionAsync` is sync or async, differ across Shesha versions and have been wrong in this skill's own examples before (a prior revision of this skill assumed `ICurrentUser.HasPermissionAsync`/`GetPermissionScope`/`IsPermissionScopedToEntity` and an async `BuildExpressionAsync()` existed in a project that actually shipped `Shesha.Framework` 0.43.37, where none of that is true — the real, verified members were `ShaSpecification<T>.BuildExpression()` (synchronous) and `IShaPermissionChecker.IsGranted(userId, permissionName, entityRef)`). Before implementing:
 1. Find the exact `Shesha.Framework`/`Shesha.Core`/`Shesha.Enterprise` package versions the project references (its `.csproj`/`Directory.Build.props`).
 2. Confirm the real shape of `ShaSpecification<T>`, the permission-checker interface, and any current-person/current-position resolution helpers by reflecting against those exact package versions in the local NuGet cache (load the assembly, list the type's members) — don't guess from documentation or from a different Shesha version's behavior.
 3. Only once verified, write code against the real API.
@@ -51,16 +104,22 @@ Design and implement comprehensive access control for Shesha-based enterprise ap
 
 **Reuse framework helpers — do not write a bespoke query/helper class speculatively, and do not re-derive this from scratch each run: the answer for "current person"/"current position"/"is granted" is already known.** Confirmed by reflecting against the actual referenced package versions (`Shesha.Enterprise.Domain`/`.Domain.Service` 5.1.7, `Shesha.Core`/`Shesha.Framework` 0.43.37) in a real project — if the target project references `Shesha.Enterprise.Domain.Service` (check its `.csproj`/`obj/project.assets.json`; a Shesha app with organisational/position structure almost always does), use these directly instead of writing a new helper:
 
-- **Current Person**: **not** `Shesha.Enterprise.Session.EnterpriseSessionBase.PersonId` — that property looks like exactly the right thing (a plain sync `Guid?`) and was used that way in an earlier pass of this skill, but it's wrong and was confirmed live to always return `null` for a normal user on a normal request. Decompiling `EnterpriseSessionBase` (`ilspycmd`, see the reflection-probe note above) shows why: its base class, `Shesha.Session.ClaimsShaSession` (`Shesha.Application`), has its own `virtual Guid? PersonId` that correctly reads the logged-in user's Person from a JWT claim — but `EnterpriseSessionBase` **overrides** it with `EnterpriseOverrides?.PersonId`, an ambient-scope value that is only non-null *inside* an explicit `Use(...)`/`RunUsingPositionAppointmentAsync(...)` "act as this person/position" scope. An ordinary request never establishes that scope, so the property is `null` unconditionally for every normal user — virtual dispatch means casting the reference to `ClaimsShaSession` doesn't bypass this either; the runtime type's override always wins. **Use `EnterpriseSessionBase.GetLoggedInPersonAsync()` instead** (async only — no sync alternative): it checks the override scope first (so a genuine "act as" operation is still respected) and otherwise falls back to the same claims-based lookup. It throws `AbpException` rather than returning null when there's no logged-in user or no linked Person, so wrap it: `try { return (await session.GetLoggedInPersonAsync())?.Id; } catch (AbpException) { return null; }` — for a sync caller (e.g. `ShaSpecification.BuildExpression()`), block on it the same way as the position-appointment call below. **This exact bug (reading a property that looks obviously right but is an override-only value) silently made every owner/ABAC check in every specification on a real project always evaluate as "not the owner"** — invisible when testing as an admin account whose own session may resolve a Person a different way, or not need the owner path at all since RBAC already grants everything; it only surfaces once a real least-privilege test user's specs are actually exercised. Don't trust a property name/shape alone — verify behavior (decompile if needed) before relying on it in every specification a project has.
+- **Current Person**: **not** `Shesha.Enterprise.Session.EnterpriseSessionBase.PersonId` — that property looks like exactly the right thing (a plain sync `Guid?`) and a prior revision of this skill used it that way, but it's wrong and was confirmed live to always return `null` for a normal user on a normal request. (This is a **framework-level** trap, not an application bug — route it to the Shesha-team report per [reference/checks.md](reference/checks.md) § 6.) Decompiling `EnterpriseSessionBase` (`ilspycmd`, see the reflection-probe note above) shows why: its base class, `Shesha.Session.ClaimsShaSession` (`Shesha.Application`), has its own `virtual Guid? PersonId` that correctly reads the logged-in user's Person from a JWT claim — but `EnterpriseSessionBase` **overrides** it with `EnterpriseOverrides?.PersonId`, an ambient-scope value that is only non-null *inside* an explicit `Use(...)`/`RunUsingPositionAppointmentAsync(...)` "act as this person/position" scope. An ordinary request never establishes that scope, so the property is `null` unconditionally for every normal user — virtual dispatch means casting the reference to `ClaimsShaSession` doesn't bypass this either; the runtime type's override always wins. **Use `EnterpriseSessionBase.GetLoggedInPersonAsync()` instead** (async only — no sync alternative): it checks the override scope first (so a genuine "act as" operation is still respected) and otherwise falls back to the same claims-based lookup. It throws `AbpException` rather than returning null when there's no logged-in user or no linked Person, so wrap it: `try { return (await session.GetLoggedInPersonAsync())?.Id; } catch (AbpException) { return null; }` — for a sync caller (e.g. `ShaSpecification.BuildExpression()`), block on it the same way as the position-appointment call below. **This exact bug (reading a property that looks obviously right but is an override-only value) silently made every owner/ABAC check in every specification on a real project always evaluate as "not the owner"** — invisible when testing as an admin account whose own session may resolve a Person a different way, or not need the owner path at all since RBAC already grants everything; it only surfaces once a real least-privilege test user's specs are actually exercised. Don't trust a property name/shape alone — verify behavior (decompile if needed) before relying on it in every specification a project has.
 - **Current active Position** (via the person's current `PositionAppointment`): `Shesha.Enterprise.Domain.Session.IEnterpriseSession.GetCurrentPositionAppointmentAsync()` / `GetCurrentPositionAppointmentIdAsync()` (async only — no sync property exists for this one). `abpSession as IEnterpriseSession` gives you this interface from the same session object as above. For a *different* person's (not the current user's) active position — e.g. a supervisor-chain check about someone else — use `Shesha.Enterprise.Domain.Service.Positions.IPositionAppointmentsManager.GetActiveAppointmentAsync(Person)`/`GetActiveAppointmentOrNullAsync(Person)` (resolve via `IocManager`), or `.GetSupervisorPersonAsync(Person)`/`GetSupervisorPersonOrNullAsync(Person)` on the same manager if what you actually need is "this person's supervisor" rather than a raw position/appointment.
 - **Permission check**: `Shesha.Authorization.IShaPermissionChecker.IsGranted(userId, permissionName, entityRef)` (sync) / `IsGrantedAsync(...)` — already covered above; `ICustomPermissionChecker`/`ShaCustomPermissionChecker` in `Shesha.Core` expose the identical `IsGranted`/`IsGrantedAsync(long, string[, EntityReferenceDto<string>])` shape if a project's DI graph resolves that interface instead.
 
-**Check every project-specific `ICustomPermissionChecker` implementation for a `NotImplementedException` before trusting that any permission check actually works — testing as `admin` will never catch this.** `ShaPermissionChecker` (the real `IShaPermissionChecker`, confirmed by decompiling it on a real project) checks standard RBAC first and returns `true` immediately if that already grants the permission — it only falls through to `IocManager.ResolveAll<ICustomPermissionChecker>()` and asks every registered custom checker **when RBAC alone says no**. If a project registers its own `ICustomPermissionChecker` (grep for `ICustomPermissionChecker` in `*Module.cs` files) and that implementation throws `NotImplementedException` on any overload instead of returning `false` — confirmed as a real, live, project-wide bug on a real project (`HcmPermissionChecker`, three of its four `IsGranted`/`IsGrantedAsync` overloads unconditionally threw) — then **every permission check for a permission the current user doesn't already hold via RBAC crashes the request** instead of cleanly denying it. This is invisible during any testing done as an admin/superuser (they hold every permission directly via RBAC, so they always short-circuit before reaching the custom checker) and only surfaces for a real least-privilege test account — which is exactly why it's easy to ship a whole access-control design that looks correct and complete but is silently broken for every non-admin user. Before considering any `[GlobalSpecification]`/`[SheshaAuthorize]` work done:
+**Check every project-specific `ICustomPermissionChecker` implementation for a `NotImplementedException` before trusting that any permission check actually works — testing as `admin` will never catch this.** `ShaPermissionChecker` (the real `IShaPermissionChecker`, confirmed by decompiling it on a real project) checks standard RBAC first and returns `true` immediately if that already grants the permission — it only falls through to `IocManager.ResolveAll<ICustomPermissionChecker>()` and asks every registered custom checker **when RBAC alone says no**. If a project registers its own `ICustomPermissionChecker` (grep for `ICustomPermissionChecker` in `*Module.cs` files) and that implementation throws `NotImplementedException` on any overload instead of returning `false` — confirmed as a real, live, project-wide bug on a real project (a project's own custom checker had three of its four `IsGranted`/`IsGrantedAsync` overloads unconditionally throwing) — then **every permission check for a permission the current user doesn't already hold via RBAC crashes the request** instead of cleanly denying it. This is invisible during any testing done as an admin/superuser (they hold every permission directly via RBAC, so they always short-circuit before reaching the custom checker) and only surfaces for a real least-privilege test account — which is exactly why it's easy to ship a whole access-control design that looks correct and complete but is silently broken for every non-admin user. Before considering any `[GlobalSpecification]`/`[SheshaAuthorize]` work done:
 1. Grep the project for `ICustomPermissionChecker` registrations (`Component.For<ICustomPermissionChecker>()...` or equivalent DI registration).
 2. If one exists, read every method on the concrete class — any `throw new NotImplementedException()` on an `IsGranted`/`IsGrantedAsync` overload is a live bug; it should return `false` instead (a custom checker declining to grant something extra is not the same as an error).
 3. Test at least one permission check as a **non-admin account holding some but not all of the relevant permissions** — this is the only way to actually exercise the RBAC-denies-then-falls-through-to-custom-checker path and catch this class of bug. A full test-scenario account (a real person/position/role setup, not just an API call as admin) is worth the setup cost specifically because of this.
 
-Only if a target project's own reflection check (do this — package versions and DI wiring vary) shows it does **not** reference `Shesha.Enterprise.Domain.Service`, fall back to `Shesha.Core`'s `DomainService.GetCurrentPersonAsync()` extension (needs a `DomainService`-derived caller, or resolve one via `IocManager` and call it, blocking if the caller is sync) or an app-specific manager the codebase already has (e.g. `ChangeOfSupervisorWorkflowManager.GetLoggedInPositionAsync`) before writing anything new. A project-specific "AccessQueries"-style utility class, when still needed at all, should be a thin wrapper around framework calls like these — not a reimplementation of person/position/permission resolution via raw repository queries.
+This is the **INV-CHK** check (registry `check-registry.md`): the fix template and the
+grants-have-effect regression probe are in [reference/checks.md](reference/checks.md) § INV-CHK, and
+the `INV-GRANTS-HAVE-EFFECT` invariant in
+[reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md) automates
+exactly this two-account check.
+
+Only if a target project's own reflection check (do this — package versions and DI wiring vary) shows it does **not** reference `Shesha.Enterprise.Domain.Service`, fall back to `Shesha.Core`'s `DomainService.GetCurrentPersonAsync()` extension (needs a `DomainService`-derived caller, or resolve one via `IocManager` and call it, blocking if the caller is sync) or an app-specific manager the codebase already has (e.g. a workflow manager exposing a `GetLoggedInPositionAsync`-style helper) before writing anything new. A project-specific "AccessQueries"-style utility class, when still needed at all, should be a thin wrapper around framework calls like these — not a reimplementation of person/position/permission resolution via raw repository queries.
 
 **Blocking on an async framework call from a required-synchronous override (e.g. `ShaSpecification.BuildExpression()`) is sometimes unavoidable and is safe under ASP.NET Core** (no captured `SynchronizationContext` in Kestrel's pipeline) — but the project's analyzers will very likely flag `.GetAwaiter().GetResult()`/`.Result` as an error (`VSTHRD002`) if `TreatWarningsAsErrors` is on (common in Shesha projects). Suppress narrowly with a comment explaining why no async path exists, rather than restructuring around it or disabling the analyzer project-wide:
 ```csharp
@@ -77,6 +136,8 @@ Detailed patterns, examples, and the full access control guide:
 - [reference/implementation-patterns.md](reference/implementation-patterns.md) — Code templates for authorizers, specifications, API authorization, and permission checks
 - [reference/design-template.md](reference/design-template.md) — Template for access control design documents
 - [reference/api-reference.md](reference/api-reference.md) — Shesha Permission, Role, Role Assignment, and PermissionedObject (per-action permission requirements) API endpoints, DTOs, and programmatic role management patterns
+- [reference/checks.md](reference/checks.md) — The access-control audit-mode decision procedure (INPUT→PREDICATE→VERDICT→ANCHOR→`plan_id`→regression-test→severity) reusing the shared evidence enum, scoring key and registry ids; the remediation templates keyed to SEC-A/C/K/L/S + INV-CHK; and the framework-flaw → Shesha-team-report routing
+- [reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md) — Design and scaffolded xUnit template for the authorisation-inventory test: the deterministic access-control invariants, the baseline/snapshot drift policy, the capability gate (static vs live), and how each invariant emits into `findings.json`
 
 ## Workflow
 
@@ -274,8 +335,14 @@ never set). Confirmed live on a real project — see
 properly-authorized AppService is the only way into an entity; check the entity's own
 `{FullName}@Create` etc. nodes too.
 
-**Leave `Get`/`GetAll` `PermissionedObject` nodes at `access: 2` (Inherited) — don't gate reads with
-a permission the way you gate mutations.** These are two different mechanisms answering two
+**Leave `Get`/`GetAll` `PermissionedObject` nodes at `access: 2` (Inherited) *only when a verified
+`[GlobalSpecification]` already filters that entity's rows* — otherwise Inherited means
+any-authenticated-can-read-everything, and the read must instead be explicitly permissioned.** This
+conditional is enforced by the authorisation-inventory test's `INV-GET-INHERITED-NEEDS-SPEC`
+invariant ([reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md)):
+a `Get`/`GetAll` left at Inherited with **no** verified spec and **no** reasoned exemption is a
+finding (H5), not an accepted default. Where a spec is confirmed present, don't gate reads with a
+permission the way you gate mutations. These are two different mechanisms answering two
 different questions, and confusing them breaks self-service access: `PermissionedObject` on an
 action answers "can this be attempted at all" (checked before anything runs), while a
 `[GlobalSpecification]` answers "which rows does this caller get back" (a filter, not a gate).
@@ -337,11 +404,22 @@ by hand; script it. See [reference/implementation-patterns.md](reference/impleme
    `Create`/`Update`/`Delete`/`Get` `PermissionedObject` nodes.
 2. Drop every `notImplemented: true` row — dead metadata for a class that no longer resolves, not a
    live entity (see api-reference.md § EntityConfig API).
-3. For everything left, classify by finding what actually consumes it: a hand-written
-   AppService/Controller in the codebase → it's "used", so match the same permission that
-   AppService's own `[SheshaAuthorize]` already requires (apply to the entity's raw dynamic
-   `Create`/`Update`/`Delete` per 4f above — leave `Get` alone). No AppService/Controller anywhere,
-   confirmed by grepping the whole repo for the class name → it's unused, disable it entirely (4h).
+3. For everything left, classify by finding what actually consumes it:
+   - **Hand-written AppService/Controller in the codebase** → it's "used", so match the same
+     permission that AppService's own `[SheshaAuthorize]` already requires (apply to the entity's raw
+     dynamic `Create`/`Update`/`Delete` per 4f above — leave `Get`/`GetAll` alone **only if a
+     verified spec protects the rows**, else permission them too).
+   - **No hand-written AppService, but the entity is genuinely managed through the generic
+     dynamic-CRUD surface** (a form/integration reads or writes it via `/api/dynamic/...` or
+     `Entities/GetAll`, confirmed — not just "no C# service exists") → this is the **whole-table**
+     case. Don't disable it; instead require that **all five** dynamic nodes are accounted for:
+     `Create`/`Update`/`Delete` explicitly permissioned, and `Get`/`GetAll` either explicitly
+     permissioned **or** left Inherited **only** behind a verified `[GlobalSpecification]`. A
+     `[GlobalSpecification]` is **required** for this case (there's no AppService to carry row-level
+     logic), and a missing one is an `INV-HAS-SPEC` finding.
+   - **No AppService/Controller anywhere and nothing consumes the dynamic surface either**, confirmed
+     by grepping the whole repo for the class name and checking forms/integrations → it's unused,
+     disable it entirely (4h), or set `generateAppService: false`.
 4. A `PermissionedObject` node **absent** for an entity does not mean it's already locked down — see
    api-reference.md's note under § "Set an object's required permission/access": rows are written on
    demand, never auto-synced, so absence means open-by-default. Don't skip an entity just because it
@@ -374,5 +452,13 @@ For each permission, outline test cases:
 - Edge cases (null references, multiple roles, scoped assignments)
 - Information leakage scenarios for child entities
 
-**5c. Report implementation summary:**
+**5c. Secret-safety (every design doc, snapshot and script):**
+Never write a token, password, connection-string password, API key or JWT signing key into a design
+document, an access-control design, a baseline/snapshot file, a `findings.json`, a test fixture or any
+committed script. Record a secret's *existence* as presence + length or `sha256:<first-12-hex>` only,
+never the value; read low-priv probe credentials from an un-committed config/secret store at run time.
+See [reference/checks.md](reference/checks.md) § 5 and the shared standard
+(`../auditing-application-security/references/determinism-standard.md` § 10).
+
+**5d. Report implementation summary:**
 Present a clear summary of all changes made, new files created, and any remaining items.
