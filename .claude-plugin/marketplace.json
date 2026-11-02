@@ -23,6 +23,21 @@
       "name": "boxfusion-infra",
       "source": "./plugins/boxfusion-infra",
       "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, including Elmah log cleanup (XML files and SQL) and app log cleanup (log4net and scheduled-job logs) on Linux and Windows App Services."
+    },
+    {
+      "name": "auditing-application-security",
+      "source": "./plugins/auditing-application-security",
+      "description": "Catalogues and security-reviews a whole Shesha application (roles/permissions, forms, screens, endpoints, entities and CRUD APIs), probes it anonymously and as a low-privilege user, and writes prioritised, plain-English remediation per package with a findings.json and reviewer workbook."
+    },
+    {
+      "name": "hardening-shesha-app",
+      "source": "./plugins/hardening-shesha-app",
+      "description": "Scans a Shesha application for app-level security misconfigurations (JWT token lifetime, sign-out token revocation, failed-login lockout, Hangfire dashboard) and applies safe, minimal fixes one commit per check with dry-run diffs."
+    },
+    {
+      "name": "shesha-access-control",
+      "source": "./plugins/shesha-access-control",
+      "description": "Designs, documents and implements access control for Shesha applications: roles and permissions, API-level authorization, and data-level filtering via global specifications."
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+    "name": "shesha-access-control",
+    "version": "1.0.0",
+    "description": "Designs, documents and implements access control for Shesha framework applications: discovery of existing roles/permissions, access-control design documentation, permission and role creation, API-level authorization, and data-level filtering via global specifications. Use when asked to design, implement, audit, review or document access control, permissions, roles, authorization or security specifications in a Shesha project.",
+    "author": {
+        "name": "Boxfusion"
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "name": "auditing-application-security",
+    "version": "1.0.0",
+    "description": "Catalogues and security-reviews a whole Shesha application — roles/permissions, configured forms, coded screens, custom endpoints, entities and their CRUD APIs — then writes plain-English, prioritised remediation recommendations per package. Self-contained: starts the dev servers, collects live configuration, scans form markup and front-end source, probes endpoints anonymously and as a low-privilege user, checks Startup.cs, appsettings, tokens, rate limiting and dependencies, and emits a findings.json plus a reviewer workbook.",
+    "author": {
+        "name": "Boxfusion"
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "name": "hardening-shesha-app",
+    "version": "1.0.0",
+    "description": "Scans a Shesha application repository for app-level security misconfigurations (not framework defects) and applies safe, minimal fixes. Current checks: over-long JWT token lifetime; token blacklist not wired into JwtBearer OnTokenValidated (so sign-out does not revoke tokens); failed-login lockout disabled or weakened; and a Hangfire dashboard guarded by the starter's app-level admin filter instead of UseSheshaHangfireDashboard(). Scan is read-only; fixes apply one commit per check with dry-run diffs first.",
+    "author": {
+        "name": "Boxfusion"
+    }
+}
