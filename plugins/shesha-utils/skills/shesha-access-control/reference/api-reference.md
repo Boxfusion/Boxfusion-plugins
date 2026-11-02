@@ -666,7 +666,7 @@ whether the dynamic-CRUD endpoints **exist at all** for an entity — this is wh
 `[Entity(GenerateApplicationService = GenerateApplicationServiceState.DisableGenerateApplicationService)]`
 sets when applied to an entity defined in the project's own source (confirmed end-to-end in a real
 project: the attribute on the C# class produced an `EntityConfig` row with `generateAppService: false`,
-picked up automatically — no separate seeding step needed. See `LeaveBalanceTransaction` in
+picked up automatically — no separate seeding step needed. See the entity-in-own-source example in
 `implementation-patterns.md` § Disabling CRUD Generation Entirely for the code side).
 
 For an entity that is **not** defined in the project's own source (e.g. `Person`, compiled into a
@@ -820,7 +820,8 @@ Permissions created without a `module` field become orphaned — they appear in 
 The `PermissionDto` has both `moduleId` (read-only Guid?) and `module` (EntityReferenceDto). The API **silently ignores** `moduleId` on writes — it reads from `module.Id` to resolve the Module entity. Always use `"module": {"id": "guid"}`.
 
 ### 3. Permission Update does NOT persist Module to the database (framework bug)
-**CRITICAL:** The `EditPermissionAsync` method in `ShaPermissionManager` updates `Name`, `Description`, `Label`, and `Parent` on the DB entity, but **never sets `dbPermission.Module`**. The module is only set in the in-memory permission cache. This means:
+**CRITICAL — framework-level defect: route it to the Shesha-team report (see
+[checks.md](checks.md) § 6), not to any application's backlog.** The `EditPermissionAsync` method in `ShaPermissionManager` updates `Name`, `Description`, `Label`, and `Parent` on the DB entity, but **never sets `dbPermission.Module`**. The module is only set in the in-memory permission cache. This means:
 - `PUT /Update` returns HTTP 200 with the correct `moduleId` in the response (from cache)
 - `GET` also returns the correct `moduleId` (from cache)
 - But the **database record** (`Frwk_ConfigurationItems.ModuleId`) remains NULL
@@ -855,7 +856,8 @@ If a permission already exists (e.g., from a different module or Shesha core), t
 When the API behavior is unclear or undocumented, check the framework source code at `shesha-framework/shesha-core/src/Shesha.Application/Permissions/PermissionAppService.cs` and `shesha-framework/shesha-core/src/Shesha.Application/Api/ShaRoleAppService.cs` to understand exactly how DTOs map to persistence.
 
 ### 8. `EntityConfig/Update` corrupts `ModuleId` — worse than Permission's bug, no known safe request body
-See § EntityConfig API above for the full detail. In short: this endpoint's `module` field is a
+**Framework-level defect: route it to the Shesha-team report (see [checks.md](checks.md) § 6), not to
+any application's backlog.** See § EntityConfig API above for the full detail. In short: this endpoint's `module` field is a
 plain string that AutoMapper cannot actually write (real value → HTTP 500), and omitting it nulls
 `Frwk_ConfigurationItems.ModuleId` instead of leaving it alone (unlike Permission's bug, which just
 silently *ignores* the write — this one actively destroys the existing value). Prefer the
@@ -867,10 +869,10 @@ the same pattern as pitfall #3 above, keyed by `EntityConfig`'s own `id` instead
 An entity with both a custom AppService (with its own `[SheshaAuthorize]`/authorizer logic) *and*
 `EntityConfig.generateAppService: true` gets **two independent REST surfaces**: the custom
 AppService's own routes/methods, AND Shesha's generic dynamic-CRUD `Create`/`Update`/`Delete`/`Get`
-on the raw entity type — confirmed by finding exactly this on `LeaveProfile` and
-`LeaveCalendarConfig`, where the dynamic entity-level `@Create`/`@Update`/`@Delete`
-`PermissionedObject` nodes sat at `access: 2` (Inherited) with no permission, wide open, while the
-hand-written AppService right next to them was properly gated — the AppService's authorization does
+on the raw entity type — confirmed by finding exactly this on two sibling entities that each had both
+a hand-written AppService and `generateAppService: true`, where the dynamic entity-level
+`@Create`/`@Update`/`@Delete` `PermissionedObject` nodes sat at `access: 2` (Inherited) with no
+permission, wide open, while the hand-written AppService right next to them was properly gated — the AppService's authorization does
 nothing to protect the second, parallel path. **Whenever an entity has a custom AppService, check
 whether it also has `generateAppService: true`** (via `EntityConfig.GetAll`/`GetAllTree`'s per-entity
 node in `PermissionedObject.GetAll`, searching for `{EntityFullName}@Create` etc.) and, if so, set
