@@ -1,0 +1,8 @@
+{
+    "name": "boxfusion-tlc",
+    "version": "0.1.0",
+    "description": "DRAFT / preview. End-to-end \"TLC\" diagnosis and framework-native remediation for a BoxFusion Shesha/ABP system. A specialist sweep across security, code, SQL, the ORM, forms and operations: it brings test coverage to standard, proves each finding, and writes a plain-English, no-blame report with BA questions, PM concerns and a separate Shesha-team report; on approval it ships fixes the Shesha way under one work item as PRs. Findings are deterministic (two independent runs produce identical findings and the same fix order), with a Roslyn analyzer for the checks a text search cannot do. Includes a --security-only breach-response mode that one person can run across every project or a team can split. Modes: --educational / --interactive / --auto-fix, --quick / --static / --deep, --area, --security-only.",
+    "author": {
+        "name": "Boxfusion"
+    }
+}

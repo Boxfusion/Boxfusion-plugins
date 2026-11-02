@@ -23,6 +23,11 @@
       "name": "boxfusion-infra",
       "source": "./plugins/boxfusion-infra",
       "description": "Infrastructure and operations skills for Boxfusion/Shesha deployments: housekeeping on Azure App Services and application databases, including Elmah log cleanup (XML files and SQL) and app log cleanup (log4net and scheduled-job logs) on Linux and Windows App Services."
+    },
+    {
+      "name": "boxfusion-tlc",
+      "source": "./plugins/boxfusion-tlc",
+      "description": "DRAFT / preview. End-to-end \"TLC\" diagnosis and framework-native remediation for a BoxFusion Shesha/ABP system: a deterministic specialist sweep across security, code, SQL, the ORM, forms and operations that proves each finding, writes a plain-English no-blame report, and (on approval) ships fixes the Shesha way as PRs. Includes a --security-only breach-response mode."
     }
   ]
 }
