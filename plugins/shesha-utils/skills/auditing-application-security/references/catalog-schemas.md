@@ -249,6 +249,13 @@ Header: `findingCount`, `bySeverityHint`.
 | `evidence[]` | `file:line`, or the probe and its status. Cite these, never a line number from memory |
 | `recommendationHint` | Points at the section of `remediation-guide.md` that fixes it |
 | `reviewRequired` | Always true |
+| `checkId`, `anchor` | The registered CHECK-ID (`references/check-registry.md`, with `G1`→`B7` and `D1`/`D2`→`K1`/`K2`) and its symbol/key anchor. `findings.py` forms the stable id `<checkId>@<anchor>` from these. Null on a finding with no registered check |
+| `locator` | `file:line` display only — the line number lives here, never in `anchor`, so it stays out of the reproducibility diff |
+| `evidenceLevel` | `REPRODUCED`/`VERIFIED-ARTEFACT`/`CODE-ONLY`/`NOT-ASSESSED` etc. (`determinism-standard.md` §3), a separate axis from severity |
+| `severityScore` | Derived band (`Critical`…`Low`) from `impactClass`+`reachability`+`dataSensitivity` (`determinism-standard.md` §4). Not asserted — recompute, don't edit |
+| `impactClass`, `reachability`, `dataSensitivity` | The three declared severity inputs |
+| `planId`, `rootCause`, `subArea` | Templated remediation id, `RC-sec-*` root cause, and the team-split sub-area |
+| `nonDeterministic` | `true` for a check a text scan cannot make reproducible (live probe, advisory DB). `normalize_findings.py` drops these from the acceptance diff |
 
 ## `review-overrides.json`
 
