@@ -16,9 +16,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import NotFixable, Repo, Status, diff, load_checks  # noqa: E402
+from core import (NotFixable, Repo, Status, diff, load_checks, score_severity,  # noqa: E402
+                  secret_fingerprint, SEVERITY_BANDS)
 from checks.token_blacklist import framework_supports  # noqa: E402
 import harden  # noqa: E402
+import normalize_findings  # noqa: E402
+import diff_runs  # noqa: E402
 
 REGISTRY = load_checks()
 
@@ -515,6 +518,186 @@ class RunnerCommitTests(RepoCase):
         self.assertIn("WARNING - not applied: needs a Shesha version with UseSheshaHangfireDashboard()", out.getvalue())
         self.assertRegex(out.getvalue(), r"\| `hangfire-dashboard` \| yes \(FAIL\) \| FAIL: .* \| not applied: .*re-run \|")
         self.assertEqual(self.git("log", "--format=%s", "main..HEAD"), "")
+
+
+APPSETTINGS = '{{\n  // comment\n  "Authentication": {{ "JwtBearer": {{ "SecurityKey": "{key}" }} }}\n}}\n'
+STARTER_KEY = "secretKey_secretKeysecretKeysecretKey"   # ABP template default; fingerprint is seeded
+KEY_PATH = "backend/src/Web.Host/appsettings.json"
+
+
+class JwtSigningKeyTests(RepoCase):
+    def test_committed_literal_is_blanked_and_secret_not_echoed(self):
+        from core import redact_secrets
+        secret = "A_sufficiently_long_committed_signing_key_0001"
+        self.put(KEY_PATH, APPSETTINGS.format(key=secret))
+        # compute the diff on a fresh (un-staged) repo so the redaction path is exercised
+        repo = Repo(self.root)
+        check = REGISTRY["jwt-signing-key"]()
+        before = check.scan(repo)
+        edits = check.fix(repo, before)
+        self.assertIn('"SecurityKey": ""', edits[0].new_text)
+        self.assertIn("// comment", edits[0].new_text)                 # formatting preserved
+        self.assertEqual(edits[0].redactions, (secret,))
+        self.assertNotIn(secret, diff(repo, edits[0]))                 # the shown diff masks the value
+        self.assertIn("redacted", redact_secrets(f"old: {secret}", edits[0].redactions))
+        self.assertNotIn(secret, before.summary)                       # the report never echoes the key
+        for i in before.issues:
+            self.assertNotIn(secret, i.message)
+        for e in edits:
+            repo.stage(e)
+        self.assertEqual(check.scan(repo).status, Status.PASS)
+
+    def test_reference_and_empty_pass(self):
+        self.put(KEY_PATH, APPSETTINGS.format(key=""))
+        self.assertEqual(self.run_check("jwt-signing-key")[0].status, Status.PASS)
+        self.put(KEY_PATH, APPSETTINGS.format(key="$(JwtSigningKey)"))
+        self.assertEqual(self.run_check("jwt-signing-key")[0].status, Status.PASS)
+
+    def test_known_starter_key_is_flagged_as_forgeable(self):
+        self.put(KEY_PATH, APPSETTINGS.format(key=STARTER_KEY))
+        before = self.run_check("jwt-signing-key")[0]
+        self.assertEqual(before.status, Status.FAIL)
+        self.assertTrue(any("starter key" in i.message for i in before.issues))
+        rows = before.shared_findings(REGISTRY["jwt-signing-key"]())
+        self.assertEqual(rows[0]["check_id"], "SEC-P")                 # per-issue canonical id override
+        self.assertEqual(rows[0]["evidence_level"], "VERIFIED-ARTEFACT")
+
+    def test_short_key_notes_weakness(self):
+        self.put(KEY_PATH, APPSETTINGS.format(key="shortkey"))
+        before = self.run_check("jwt-signing-key")[0]
+        self.assertEqual(before.status, Status.FAIL)
+        self.assertTrue(any("weak" in i.message for i in before.issues))
+
+
+CORS_ANY = """\
+using Microsoft.AspNetCore.Builder;
+namespace Demo.Web.Host.Startup
+{
+    public class Startup
+    {
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddCors(o => o.AddDefaultPolicy(b => b.AllowAnyOrigin().AllowAnyHeader()));
+        }
+    }
+}
+"""
+CORS_ANY_WITH_CREDS = CORS_ANY.replace("AllowAnyOrigin().AllowAnyHeader()",
+                                       "AllowAnyOrigin().AllowCredentials()")
+CORS_SAFE = CORS_ANY.replace("AllowAnyOrigin()", 'WithOrigins("https://app.example.com")')
+CORS_PATH = "backend/src/Web.Host/Startup/Startup.cs"
+
+
+class CorsOriginsTests(RepoCase):
+    def test_wildcard_origin_is_flagged_a2(self):
+        self.put(CORS_PATH, CORS_ANY)
+        before = self.run_check("cors-origins")[0]
+        self.assertEqual(before.status, Status.FAIL)
+        rows = before.shared_findings(REGISTRY["cors-origins"]())
+        self.assertEqual(rows[0]["check_id"], "A2")
+
+    def test_wildcard_with_credentials_is_a3(self):
+        self.put(CORS_PATH, CORS_ANY_WITH_CREDS)
+        before = self.run_check("cors-origins")[0]
+        self.assertEqual(before.status, Status.FAIL)
+        rows = before.shared_findings(REGISTRY["cors-origins"]())
+        self.assertEqual(rows[0]["check_id"], "A3")
+        self.assertEqual(rows[0]["severity"], "Critical")             # A3 escalates (auth_bypass + anonymous)
+
+    def test_appsettings_wildcard_is_b3(self):
+        self.put("backend/src/Web.Host/appsettings.json",
+                 '{ "App": { "CorsOrigins": "https://a.com,*" } }')
+        before = self.run_check("cors-origins")[0]
+        self.assertEqual(before.status, Status.FAIL)
+        self.assertEqual(before.shared_findings(REGISTRY["cors-origins"]())[0]["check_id"], "B3")
+
+    def test_concrete_origins_pass(self):
+        self.put(CORS_PATH, CORS_SAFE)
+        self.assertEqual(self.run_check("cors-origins")[0].status, Status.PASS)
+
+    def test_fix_is_left_to_a_human(self):
+        self.put(CORS_PATH, CORS_ANY)
+        with self.assertRaises(NotFixable):
+            REGISTRY["cors-origins"]().fix(Repo(self.root), self.run_check("cors-origins")[0])
+
+
+FIXTURE_DOC = {
+    "schema": "hardening-shesha-app/findings@1",
+    "runMeta": {"repo": "/x", "commit": "abc", "generated": "2026-01-01T00:00:00Z", "mode": "scan only"},
+    "capabilities": {"git": {"present": True}, "live_backend": {"present": False, "reason": "NOT-ASSESSED(no --base-url)"}},
+    "findings": [
+        {"finding_id": "A10@startup.cs#Startup.UseHangfireDashboard", "check_id": "A10",
+         "anchor": "startup.cs#Startup.UseHangfireDashboard", "evidence_level": "CODE-ONLY",
+         "severity": "Critical", "plan_id": "PLAN-hangfire", "root_cause": "RC-sec-starter-surface",
+         "non_deterministic": False},
+        {"finding_id": "I3@m.cs#Mod.Expiration", "check_id": "I3", "anchor": "m.cs#Mod.Expiration",
+         "evidence_level": "CODE-ONLY", "severity": "High", "plan_id": "PLAN-token-lifetime",
+         "root_cause": "RC-sec-token", "non_deterministic": False},
+        {"finding_id": "I4@a.cs#Auth.OnTokenValidated", "check_id": "I4",
+         "anchor": "a.cs#Auth.OnTokenValidated", "evidence_level": "CODE-ONLY", "severity": "High",
+         "plan_id": "PLAN-token-blacklist", "root_cause": "RC-sec-token", "non_deterministic": True},
+    ],
+}
+
+
+class ReproducibilityTests(unittest.TestCase):
+    """The acceptance test (determinism-standard §0): one fixture normalised twice is byte-identical,
+    and two input orderings produce the same canonical output; quarantined rows are dropped."""
+
+    def test_normalising_twice_is_byte_identical(self):
+        self.assertEqual(normalize_findings.canonical_bytes(FIXTURE_DOC),
+                         normalize_findings.canonical_bytes(FIXTURE_DOC))
+
+    def test_input_order_does_not_change_output(self):
+        shuffled = {**FIXTURE_DOC, "findings": list(reversed(FIXTURE_DOC["findings"]))}
+        self.assertEqual(normalize_findings.canonical_bytes(FIXTURE_DOC),
+                         normalize_findings.canonical_bytes(shuffled))
+
+    def test_non_deterministic_rows_are_dropped(self):
+        ids = [t["finding_id"] for t in normalize_findings.canonical_findings(FIXTURE_DOC)]
+        self.assertNotIn("I4@a.cs#Auth.OnTokenValidated", ids)        # non_deterministic quarantined
+        self.assertEqual(ids, ["A10@startup.cs#Startup.UseHangfireDashboard", "I3@m.cs#Mod.Expiration"])
+
+    def test_differ_reports_convergence_and_manifest_delta(self):
+        other = {**FIXTURE_DOC, "runMeta": {**FIXTURE_DOC["runMeta"], "generated": "2026-02-02T00:00:00Z"}}
+        report = diff_runs.diff(FIXTURE_DOC, other)
+        self.assertTrue(diff_runs.converged(report))                 # volatile runMeta is out of the diff
+        self.assertTrue(report["same_commit"])
+        self.assertEqual(report["onlyA"], [])
+
+
+class DeterminismContractTests(unittest.TestCase):
+    """Every check carries the shared-contract metadata and uses symbol anchors, not line numbers."""
+
+    def test_scoring_inputs_are_valid_and_severity_derives(self):
+        for cid, cls in REGISTRY.items():
+            self.assertIn(cls.impact_class,
+                          {"auth_bypass", "data_exposure_pii", "data_integrity", "dos", "info_leak", "maintainability"})
+            self.assertIn(cls.scored_severity(), SEVERITY_BANDS, cid)
+            self.assertTrue(cls.root_cause.startswith("RC-sec-"), f"{cid} root_cause")
+            self.assertTrue(cls.canonical_id, f"{cid} missing canonical_id")
+            self.assertTrue(cls.plan_id and cls.regression_test, f"{cid} missing plan/test")
+
+    def test_anchors_are_symbols_not_line_numbers(self):
+        # scan a small fixture per check and assert no anchor ends in :<line>
+        self._assert_no_line_anchor("token-lifetime", "backend/src/Web.Core/M.cs", WEB_CORE)
+        self._assert_no_line_anchor("token-blacklist", "backend/src/Web.Host/Startup/AuthConfigurer.cs", AUTH_WITH_EVENTS)
+        self._assert_no_line_anchor("user-lockout", "backend/src/M.cs", "s.UserLockOutEnabled.WithDefaultValue(false);")
+
+    def _assert_no_line_anchor(self, check_id, rel, text):
+        import re as _re
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "backend").mkdir(parents=True, exist_ok=True)
+        (root / "backend/Directory.Build.props").write_text(PROPS.format(v="0.43.37"))
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(text))
+        check = REGISTRY[check_id]()
+        for i in check.scan(Repo(root)).issues:
+            if i.anchor:
+                self.assertIsNone(_re.search(r":\d+$", i.anchor), f"{check_id} anchor {i.anchor} is a line number")
 
 
 class RegistryTests(unittest.TestCase):

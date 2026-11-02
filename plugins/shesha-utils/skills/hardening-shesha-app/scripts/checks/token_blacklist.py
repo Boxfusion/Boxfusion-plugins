@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import re
 
-from core import (Check, Edit, Finding, Issue, NotFixable, Repo, Status, ensure_using, line_indent,
-                  matching_brace, newline_of, parse_version, register)
+from core import (Check, Edit, Evidence, Finding, Issue, NotFixable, Repo, Status, ensure_using,
+                  enclosing_type, line_indent, matching_brace, member_anchor, newline_of,
+                  parse_version, register)
 
 NAMESPACE = "Shesha.Authentication.JwtBearer"
 CALL = "context => context.EnsureTokenIsNotBlacklistedAsync()"
@@ -34,9 +35,27 @@ class TokenBlacklist(Check):
     title = "Signed-out tokens are rejected (blacklist wired into JwtBearer)"
     severity = "high"
     doc = "references/checks.md section 2"
+    # shared determinism contract (check-registry.md I4)
+    canonical_id = "I4"
+    impact_class = "auth_bypass"
+    reachability = "any_authenticated"
+    data_sensitivity = "none"
+    root_cause = "RC-sec-token"
+    deterministic = True            # detection is a static source match (the registry I4 live probe is ND)
+    plan_id = "PLAN-token-blacklist-wire"
+    regression_test = "scripts/test_checks.py::TokenBlacklistTests"
+    decision_input = "every C# file with .AddJwtBearer(...); whether it calls EnsureTokenIsNotBlacklistedAsync"
+    decision_predicate = "AddJwtBearer present AND EnsureTokenIsNotBlacklistedAsync absent -> FAIL"
+    decision_verdict = "FAIL = SignOff is cosmetic (the token keeps working until it expires)"
+    anchor_strategy = "<path>#<Type>.OnTokenValidated (role, not line)"
 
     def applies(self, repo: Repo) -> tuple[bool, str]:
-        has = repo.package_has_symbol("Shesha.Application", "Shesha.Application.dll", "EnsureTokenIsNotBlacklistedAsync")
+        symbol = repo.package_has_symbol("Shesha.Application", "Shesha.Application.dll", "EnsureTokenIsNotBlacklistedAsync")
+        # Capability shesha_assembly_symbols: when the restored DLL confirms support the basis is a
+        # VERIFIED-ARTEFACT; when it is absent we fall back to the version table - an explicit
+        # evidence downgrade to CODE-ONLY, recorded on every issue so the diff is honest (§1/§3).
+        self._support_from_artefact = symbol is not None
+        has = symbol
         if has is None:
             has = framework_supports(repo.shesha_version())
         if has is False:
@@ -50,7 +69,12 @@ class TokenBlacklist(Check):
     def scan(self, repo: Repo) -> Finding:
         files = self._configurers(repo)
         if not files:
-            return self.finding(Status.MANUAL, "no .AddJwtBearer(...) registration found in C# sources")
+            return self.finding(Status.MANUAL, "no .AddJwtBearer(...) registration found in C# sources",
+                                issues=[Issue(Status.MANUAL, "no .AddJwtBearer(...) registration found in C# sources",
+                                              anchor="sln:jwtbearer=absent", non_deterministic=True)])
+        from_artefact = getattr(self, "_support_from_artefact", False)
+        reason = None if from_artefact else ("shesha_assembly_symbols capability absent: blacklist support "
+                                             "taken from the version table, not a restored DLL (evidence downgrade)")
         issues = []
         for path in files:
             text = repo.read(path)
@@ -58,14 +82,20 @@ class TokenBlacklist(Check):
                 continue
             m = ADD_JWT_RE.search(text)
             loc = repo.loc(path, text, m.start())
+            anchor = member_anchor(repo.rel(path), enclosing_type(text, m.start()), "OnTokenValidated")
             if ON_VALIDATED_RE.search(text):
                 issues.append(Issue(Status.FAIL, "OnTokenValidated has a custom handler that does not check "
                                     "the blacklist - add `await context.EnsureTokenIsNotBlacklistedAsync();` to it",
-                                    loc, fixable=False))
+                                    loc, fixable=False, anchor=anchor, evidence=Evidence.CODE_ONLY,
+                                    evidence_reason=reason))
             else:
                 issues.append(Issue(Status.FAIL, "JwtBearer never checks the token blacklist, so sign-out "
-                                    "does not revoke tokens", loc, fixable=True))
+                                    "does not revoke tokens", loc, fixable=True, anchor=anchor,
+                                    evidence=Evidence.CODE_ONLY, evidence_reason=reason))
         notes = [] if repo.shesha_version() else ["Shesha version unknown; support assumed from restored packages"]
+        if not from_artefact and issues:
+            notes.append("blacklist support confirmed from the version table, not a restored assembly - "
+                         "run `dotnet restore` to raise the evidence to VERIFIED-ARTEFACT")
         return Finding.from_issues(self.id, issues, "OnTokenValidated calls EnsureTokenIsNotBlacklistedAsync", notes)
 
     def fix(self, repo: Repo, finding: Finding) -> list[Edit]:

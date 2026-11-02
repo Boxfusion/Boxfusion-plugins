@@ -36,6 +36,16 @@ ROWS = {
             ("severityHint", "s", None), ("status", "s", None), ("evidence", "l", []),
             ("recommendationHint", "s", None), ("reviewRequired", "b", True),
             ("reviewed", "b", False), ("reviewNote", "s?", None),
+            # Determinism standard (references/determinism-standard.md §2-§7). These make a
+            # finding reproducible run-over-run. All nullable/defaulted, so rows built before
+            # the determinism fields were wired keep validating (one release of back-compat).
+            # checkId@anchor is the stable finding id; line numbers live only in `locator`.
+            ("checkId", "s?", None), ("anchor", "s?", None), ("locator", "s?", None),
+            ("evidenceLevel", "s?", None), ("severityScore", "s?", None),
+            ("impactClass", "s?", None), ("reachability", "s?", None),
+            ("dataSensitivity", "s?", None), ("planId", "s?", None),
+            ("rootCause", "s?", None), ("subArea", "s?", None),
+            ("nonDeterministic", "b", False),
         ],
     },
     "entities": {
@@ -194,6 +204,197 @@ for _kind, _spec in ROWS.items():
     KINDS_BY_ARTIFACT.setdefault(_spec["artifact"], []).append(_kind)
 
 _TYPES = {"s": str, "l": list, "d": dict, "i": int, "b": bool}
+
+
+# ============================================================================ determinism
+# references/determinism-standard.md + references/check-registry.md.
+# This file is the single format source, so the registry, the severity-scoring key, the
+# finding-id grammar and the canonical-form helpers all live here; findings.py,
+# build_catalogs.py, verify_run.py, normalize_findings.py and diff_runs.py key off them.
+
+# Severity scoring key (determinism-standard §4; the registry's scoring table). Severity is
+# DERIVED from three declared inputs, never asserted: base(impact_class, reachability), then
+# shifted one band per data_sensitivity. Evidence level is NOT an input.
+SEVERITY_BANDS = ["Info", "Low", "Medium", "High", "Critical"]  # ascending
+
+_BASE_SEVERITY = {
+    "auth_bypass":       {"anonymous": "Critical", "any_authenticated": "High",
+                          "low_priv": "High", "admin_only": "Medium", "local_only": "Low"},
+    "data_exposure_pii": {"anonymous": "Critical", "any_authenticated": "High",
+                          "low_priv": "High", "admin_only": "Medium", "local_only": "Low"},
+    "data_integrity":    {"anonymous": "High", "any_authenticated": "High",
+                          "low_priv": "Medium", "admin_only": "Medium", "local_only": "Low"},
+    "dos":               {"anonymous": "High", "any_authenticated": "Medium",
+                          "low_priv": "Medium", "admin_only": "Low", "local_only": "Low"},
+    "info_leak":         {"anonymous": "High", "any_authenticated": "Medium",
+                          "low_priv": "Low", "admin_only": "Low", "local_only": "Low"},
+    "maintainability":   {"anonymous": "Low", "any_authenticated": "Low", "low_priv": "Low",
+                          "admin_only": "Low", "local_only": "Low"},
+}
+# popia_special raises one band; pii_basic is per-check (held at +0 for a total function here);
+# business/none do not shift. Capped at Critical.
+_SENS_SHIFT = {"popia_special": 1, "pii_basic": 0, "business": 0, "none": 0}
+
+
+def severity_score(impact_class, reachability, data_sensitivity):
+    """The derived severity band (determinism-standard §4), or None if inputs are unscored."""
+    base = _BASE_SEVERITY.get(impact_class, {}).get(reachability)
+    if base is None:
+        return None
+    idx = SEVERITY_BANDS.index(base) + _SENS_SHIFT.get(data_sensitivity or "none", 0)
+    idx = max(0, min(idx, len(SEVERITY_BANDS) - 1))
+    return SEVERITY_BANDS[idx]
+
+
+def severity_rank(band):
+    """Most-severe-first ordering key for a band name (Critical -> 0)."""
+    try:
+        return len(SEVERITY_BANDS) - 1 - SEVERITY_BANDS.index(band)
+    except (ValueError, TypeError):
+        return len(SEVERITY_BANDS)  # unknown bands sort last
+
+
+# The registry, keyed by the check id each scanner EMITS today (source_scan.py STARTUP_CHECKS
+# / SETTINGS_CHECKS, posture_scan.py T/R/G/D group checks). The value carries the registered
+# CHECK-ID (with the renames G1->B7 and D1/D2->K1/K2 baked in, registry decision 1), the three
+# scored-severity inputs, the root_cause / sub_area / plan_id, and whether the check is DET
+# (enters the byte-identity diff) or ND (non_deterministic, dropped from the diff until its
+# instrument lands). Sub-area uses determinism-standard §9 vocabulary.
+AC, SC, ID, RT = ("access-control", "secrets-and-config", "input-and-data",
+                  "real-time-and-messaging")
+
+
+def _r(check_id, impact, reach, sens, rc, area, nd=False, plan=None):
+    return {"checkId": check_id, "impactClass": impact, "reachability": reach,
+            "dataSensitivity": sens, "rootCause": rc, "subArea": area,
+            "nonDeterministic": nd, "planId": plan or ("PLAN-%s" % check_id.lower())}
+
+
+CHECK_REGISTRY = {
+    # A - web host config (Startup.cs). Guard detection is ND; presence is DET.
+    "A1-cors-origins":      _r("A1", "info_leak", "anonymous", "none", "RC-sec-cors", SC),
+    "A2-cors-wildcard":     _r("A2", "info_leak", "anonymous", "none", "RC-sec-cors", SC),
+    "A3-cors-credentials":  _r("A3", "auth_bypass", "anonymous", "none", "RC-sec-cors", SC),
+    "A2+A3":                _r("A3", "auth_bypass", "anonymous", "none", "RC-sec-cors", SC),
+    "A4-graphql-playground": _r("A4", "info_leak", "anonymous", "none",
+                                "RC-sec-starter-surface", SC),
+    "A5-swagger-ui":        _r("A5", "info_leak", "anonymous", "none",
+                               "RC-sec-starter-surface", SC),
+    "A5-swagger":           _r("A5", "info_leak", "anonymous", "none",
+                               "RC-sec-starter-surface", SC),
+    "A6-security-headers":  _r("A6", "info_leak", "anonymous", "none", "RC-sec-headers", SC),
+    "A7-csp":               _r("A7", "info_leak", "anonymous", "none", "RC-sec-headers", SC),
+    "A8-hsts":              _r("A8", "info_leak", "anonymous", "none", "RC-sec-headers", SC),
+    "A9-auth-filter":       _r("A9", "auth_bypass", "anonymous", "none",
+                               "RC-sec-authz-filter", AC),
+    "A10-hangfire":         _r("A10", "auth_bypass", "anonymous", "none",
+                               "RC-sec-starter-surface", AC),
+    "A11-elmah":            _r("A11", "info_leak", "anonymous", "pii_basic",
+                               "RC-sec-starter-surface", AC),
+    "A12-env-guard":        _r("A12", "info_leak", "anonymous", "none",
+                               "RC-sec-starter-surface", SC),
+    # B - appsettings committed secrets & config.
+    "B1-jwt-key":           _r("B1", "auth_bypass", "anonymous", "none",
+                               "RC-sec-committed-secret", SC),
+    "B2-passphrase":        _r("B2", "data_integrity", "any_authenticated", "none",
+                               "RC-sec-config", SC),
+    "B3-cors-origins":      _r("B3", "info_leak", "anonymous", "none", "RC-sec-cors", SC),
+    "B4-conn-password":     _r("B4", "data_exposure_pii", "admin_only", "none",
+                               "RC-sec-committed-secret", SC),
+    "B5-smtp":              _r("B5", "data_exposure_pii", "admin_only", "none",
+                               "RC-sec-committed-secret", SC),
+    # B7 (was G1-secrets): secrets in tracked config / git history.
+    "G1-secrets-in-tracked-config": _r("B7", "data_exposure_pii", "anonymous", "none",
+                                       "RC-sec-committed-secret", SC),
+    # C - services / controllers. Hand-routed controller with no class-level auth attribute.
+    "C1-C6":                _r("C1", "auth_bypass", "any_authenticated", "pii_basic",
+                               "RC-sec-no-authz", AC),
+    # D5 - row-level security: no global specification anywhere (solution-wide absence).
+    "D5-specifications":    _r("D5", "data_exposure_pii", "any_authenticated", "pii_basic",
+                               "RC-sec-no-rowfilter", AC),
+    # I - token & session policy. I2 is DET (reads the committed key); I1/I3/I4 depend on a
+    # live token, so they are ND.
+    "T2-signing-key":       _r("I2", "auth_bypass", "anonymous", "none",
+                               "RC-sec-committed-secret", SC),
+    "T1-token":             _r("I3", "auth_bypass", "any_authenticated", "none",
+                               "RC-sec-token", SC, nd=True),
+    "T3-signoff-invalidates": _r("I4", "auth_bypass", "any_authenticated", "none",
+                                 "RC-sec-token", SC, nd=True),
+    # J - rate limiting & lockout. Current code emits one combined R1 row; mapped to J1.
+    "R1-rate-limiting":     _r("J1", "dos", "anonymous", "none", "RC-sec-dos", AC),
+    # K - dependency advisories (renamed from the D1/D2 posture ids). ND: time-varying DB.
+    "D1-dotnet-vulnerable": _r("K1", "maintainability", "local_only", "none",
+                               "RC-sec-deps", SC, nd=True),
+    "D2-npm-audit":         _r("K2", "maintainability", "local_only", "none",
+                               "RC-sec-deps", SC, nd=True),
+}
+
+# Categories whose findings are intrinsically ND (live probe / live state), so even with no
+# registered CHECK-ID they are tagged non_deterministic and dropped from the diff.
+ND_CATEGORIES = {"anonymous-access", "authenticated-access", "object-level-authorization",
+                 "default-credentials"}
+
+# Evidence-level enum (determinism-standard §3), strongest first.
+EVIDENCE_LEVELS = ["REPRODUCED", "CONFIRMED-IN-LOGS", "VERIFIED-ARTEFACT", "CODE-ONLY",
+                   "DATA-ANOMALY", "NOT-ASSESSED"]
+
+_LINE_SUFFIX = re.compile(r":\d+$")
+
+
+def norm_path(path):
+    """Repo-root-relative path -> `/` separators -> lowercased, with any `:line` stripped.
+    The path part of an anchor only; a `#Symbol.Member` is kept verbatim by the caller."""
+    if not path:
+        return ""
+    p = str(path).replace("\\", "/")
+    p = _LINE_SUFFIX.sub("", p)
+    return p.lower()
+
+
+def anchor_member(path, symbol):
+    """C# member / type anchor: `<path>#<Type>.<Member>` (determinism-standard §2)."""
+    return "%s#%s" % (norm_path(path), symbol)
+
+
+def anchor_key(path, section_key):
+    """Config-key anchor: `<path>#key:<Section>:<Key>`."""
+    return "%s#key:%s" % (norm_path(path), section_key)
+
+
+def finding_id(check_id, anchor):
+    """The stable finding id: `<CHECK-ID>@<anchor>` (determinism-standard §2)."""
+    return "%s@%s" % (check_id, anchor)
+
+
+def finding_meta(origin, anchor, evidence_level=None, locator=None, category=None):
+    """The determinism field block for one finding row, from its emitting check id.
+
+    `origin` is the scanner's own check id (e.g. `A9-auth-filter`, `G1-secrets-in-tracked-
+    config`, `D1-dotnet-vulnerable`). An unregistered origin, or one in an ND category, is
+    tagged non_deterministic with no CHECK-ID, so the normalizer drops it from the diff.
+    """
+    entry = CHECK_REGISTRY.get(origin)
+    if entry is None or (category in ND_CATEGORIES):
+        return {
+            "checkId": entry["checkId"] if entry else None,
+            "anchor": anchor, "locator": locator,
+            "evidenceLevel": evidence_level or "NOT-ASSESSED",
+            "severityScore": None, "impactClass": None, "reachability": None,
+            "dataSensitivity": None, "planId": entry["planId"] if entry else None,
+            "rootCause": entry["rootCause"] if entry else None,
+            "subArea": entry["subArea"] if entry else None,
+            "nonDeterministic": True,
+        }
+    return {
+        "checkId": entry["checkId"], "anchor": anchor, "locator": locator,
+        "evidenceLevel": evidence_level or "CODE-ONLY",
+        "severityScore": severity_score(entry["impactClass"], entry["reachability"],
+                                        entry["dataSensitivity"]),
+        "impactClass": entry["impactClass"], "reachability": entry["reachability"],
+        "dataSensitivity": entry["dataSensitivity"], "planId": entry["planId"],
+        "rootCause": entry["rootCause"], "subArea": entry["subArea"],
+        "nonDeterministic": entry["nonDeterministic"],
+    }
 
 
 # ---------------------------------------------------------------------------- normalise

@@ -193,4 +193,116 @@ deleted filter's entry, so commit that too. Grant `Pages.Hangfire` to a test rol
 
 ---
 
-<!-- Next check: "## Section 5. `<check-id>`: <title>". See adding-a-check.md. -->
+## Section 5. `jwt-signing-key`: the signing key is supplied per environment
+
+**Why.** `Authentication:JwtBearer:SecurityKey` is the HMAC secret every issued token is signed
+with. A literal value committed to a tracked `appsettings*.json` lets anyone who can read the
+repository mint valid tokens for any user in any environment that shares the key (framework
+#4250). A value left at a template default is worse: it is identical across every Shesha/ABP
+system generated from that template, so one leak forges tokens everywhere (shared registry
+SEC-P). A key shorter than 32 bytes is also cryptographically weak (registry I2).
+
+This check is the application-side **fix owner** for the shared CHECK-ID **B1** and references
+**I2** and **SEC-P**; the audit skill detects the same issue under those ids. Secret material is
+never shown: the report cites presence, length and a `sha256:<12>` fingerprint only, and the fix
+diff is redacted (determinism-standard §10).
+
+**Detection.** In every `appsettings*.json`, the literal value of `SecurityKey`:
+
+| Shape | Result |
+|---|---|
+| Empty, or a reference (`$(...)`, `${...}`, `#{...}`) | PASS - already supplied per environment |
+| A literal whose `sha256:<12>` is in the known-starter-key list (`scripts/checks/known_jwt_key_fingerprints.json`) | FAIL, evidence VERIFIED-ARTEFACT (forgeable across systems, id SEC-P) |
+| Any other literal | FAIL, evidence CODE-ONLY (id B1); the message notes if it is also < 32 bytes (weak, I2) |
+
+**Automatic fix.** The committed value is **blanked** (`"SecurityKey": ""`), keeping the key
+present so the configuration shape stays documented. The value is removed from the file and
+redacted in the shown diff.
+
+**Manual fix (required after the auto-fix).** Supply and **rotate** the key:
+
+```bash
+# locally
+dotnet user-secrets set "Authentication:JwtBearer:SecurityKey" "$(openssl rand -base64 48)"
+# deployed: an environment variable / key vault entry, a fresh value per environment
+```
+
+Rotating the key invalidates every issued token, so every user is logged out. That is the
+intended effect when a key may have leaked; schedule it, do not spring it.
+
+**Verify.** `git grep -n "SecurityKey" -- "*appsettings*.json"` shows an empty value. Log in and
+confirm tokens are still issued (the runtime now reads the key from the secret store / env).
+
+**Seeding a new starter-key fingerprint.** Fingerprint the template value once and store only the
+hash: `printf '%s' '<key>' | sha256sum` → add `sha256:<first-12>` with its source to
+`known_jwt_key_fingerprints.json`. Never commit the key itself.
+
+---
+
+## Section 6. `cors-origins`: CORS does not allow any origin
+
+**Why.** A wildcard CORS origin (`AllowAnyOrigin()`, `WithOrigins("*")`, or `App:CorsOrigins`
+set to `*`) lets any website read authenticated responses from the API in a logged-in user's
+browser. Combined with `AllowCredentials()` it is a cross-origin auth bypass: the browser spec
+forbids `*`+credentials, so a project shipping both has usually widened a concrete allowlist to
+`*` by hand (framework #4618).
+
+This check is the fix owner for the shared CHECK-IDs **A2** (wildcard origin, Startup), **A3**
+(wildcard **+ credentials**, escalates to Critical) and **B3** (`App:CorsOrigins` in appsettings).
+**A1** (allowlist entirely absent) is not flagged here, to avoid false positives - the skill looks
+for the bad thing, not the missing good thing.
+
+**Detection.**
+
+| Shape | Result |
+|---|---|
+| `AllowAnyOrigin()` or `WithOrigins("...", "*", ...)` in a C# file | FAIL (A2) |
+| ...and `AllowCredentials()` in the same file | FAIL (A3), **Critical** |
+| `App:CorsOrigins` value containing a `*` entry | FAIL (B3) |
+| Concrete origins only | PASS |
+
+**Automatic fix.** None. The correct origin allowlist is environment-specific; guessing it would
+either break the application or re-open the hole. The check reports and routes to the manual fix
+(skill principle: recognise, or leave to a human).
+
+**Manual fix.** Replace the wildcard with the application's own front-end origins, read from
+configuration so each environment sets its own:
+
+```csharp
+builder.WithOrigins(configuration["App:CorsOrigins"].Split(",", StringSplitOptions.RemoveEmptyEntries))
+       .AllowAnyHeader().AllowAnyMethod();   // add .AllowCredentials() only with a concrete allowlist
+```
+
+Set `App:CorsOrigins` per environment (comma-separated, no `*`). Never pair `*` with credentials.
+
+**Verify.** From a disallowed origin, a browser pre-flight (`OPTIONS`) must omit
+`Access-Control-Allow-Origin`; from an allowed origin it must echo exactly that origin, never `*`.
+
+---
+
+## No-blame wording (determinism-standard §10)
+
+Findings name **no individual**. Describe the gap and the fix, not who introduced it: "the signing
+key is committed", not "someone committed the key". Where the root cause is a framework default or
+a starter-template shape rather than an application choice (the Hangfire starter filter, a template
+`SecurityKey`, a missing framework API), route it to the **Shesha-team report** below and say so,
+so the application team is not blamed for a framework flaw.
+
+### Shesha-team report (framework-level, not application faults)
+
+These are not defects in the application under review; they are framework or starter-template
+issues to raise with the Shesha team (shesha-io/shesha-framework), with the application-side
+mitigation applied in the meantime:
+
+- **Hangfire dashboard** (`hangfire-dashboard`, A10): the starter maps `/hangfire` with an
+  app-level filter that trusts an unvalidated token. The real fix is the framework's
+  `UseSheshaHangfireDashboard()` (#5554); until a version ships it, the app can only avoid mapping
+  the dashboard in production.
+- **Starter `SecurityKey`** (`jwt-signing-key`, SEC-P): a template default key shared across
+  systems (#4250). The app rotates to its own secret; the Shesha team should ship templates with no
+  committed key.
+- **Token blacklist wiring** (`token-blacklist`, I4): older starter templates do not wire
+  `EnsureTokenIsNotBlacklistedAsync` into `OnTokenValidated`. The app adds it; newer templates
+  already do.
+
+<!-- Next check: "## Section 7. `<check-id>`: <title>". See adding-a-check.md. -->

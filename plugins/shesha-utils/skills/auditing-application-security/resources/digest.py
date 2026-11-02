@@ -185,6 +185,16 @@ def items_for(pkg, docs):
                                    row["recommendationHint"]),
             "sensitivity": "HIGH" if row["severityHint"] in ("CRITICAL", "HIGH") else "LOW",
             "referencedBy": [], "backendCallers": 0, "status": row.get("status"),
+            # Determinism fields carried through so findings.py can form <CHECK-ID>@<anchor>
+            # and the normalizer can drop the ND ones. Absent on pre-determinism catalogues.
+            "findingId": row.get("id"),
+            "checkId": row.get("checkId"), "anchor": row.get("anchor"),
+            "locator": row.get("locator"), "evidenceLevel": row.get("evidenceLevel"),
+            "severityScore": row.get("severityScore"),
+            "impactClass": row.get("impactClass"), "reachability": row.get("reachability"),
+            "dataSensitivity": row.get("dataSensitivity"), "planId": row.get("planId"),
+            "rootCause": row.get("rootCause"), "subArea": row.get("subArea"),
+            "nonDeterministic": bool(row.get("nonDeterministic")),
         })
 
     out.sort(key=lambda r: (r["priority"], r["kind"], r["where"]))

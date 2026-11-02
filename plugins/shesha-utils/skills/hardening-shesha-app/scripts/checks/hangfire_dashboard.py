@@ -17,8 +17,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from core import (Check, Edit, Finding, Issue, NotFixable, Repo, Status, ensure_using, matching_brace,
-                  register)
+from core import (Check, Edit, Evidence, Finding, Issue, NotFixable, Repo, Status, ensure_using,
+                  enclosing_type, matching_brace, member_anchor, register, type_anchor)
 
 EXTENSION = "UseSheshaHangfireDashboard"
 EXTENSION_NS = "Shesha.Scheduler.Extensions"
@@ -63,6 +63,19 @@ class HangfireDashboard(Check):
     title = "Hangfire dashboard uses the framework's validated Pages.Hangfire check"
     severity = "high"
     doc = "references/checks.md section 4"
+    # shared determinism contract (check-registry.md A10)
+    canonical_id = "A10"
+    impact_class = "auth_bypass"
+    reachability = "anonymous"
+    data_sensitivity = "none"
+    root_cause = "RC-sec-starter-surface"
+    deterministic = True            # the call's PRESENCE is DET; "is it guarded?" judgement is flagged ND
+    plan_id = "PLAN-hangfire-use-framework-dashboard"
+    regression_test = "scripts/test_checks.py::HangfireDashboardTests"
+    decision_input = "every .UseHangfireDashboard(...) call and the IDashboardAuthorizationFilter classes declared in the repo"
+    decision_predicate = "template/framework filter reading an unvalidated token -> FAIL; custom/unknown filter or extra options -> MANUAL; no filter -> WARN"
+    decision_verdict = "FAIL = a hand-made unsigned 'admin' token opens the dashboard (trigger/delete jobs, read args)"
+    anchor_strategy = "call: <path>#<Type>.UseHangfireDashboard; filter: <path>#<FilterClass> (never a line number)"
 
     # ---- framework support
     @staticmethod
@@ -113,15 +126,19 @@ class HangfireDashboard(Check):
         issues, notes = [], []
         for call in calls:
             loc = repo.loc(call.path, call.text, call.m.start())
+            anchor = member_anchor(repo.rel(call.path), enclosing_type(call.text, call.m.start()),
+                                   "UseHangfireDashboard")
             if not call.recognised:
                 issues.append(Issue(Status.MANUAL, "UseHangfireDashboard(...) has options or a shape this check "
-                                    f"does not rewrite; switch it to {EXTENSION}() by hand", loc))
+                                    f"does not rewrite; switch it to {EXTENSION}() by hand", loc,
+                                    anchor=anchor, evidence=Evidence.CODE_ONLY, non_deterministic=True))
                 continue
             kinds = {n: self._classify(n, app_filters) for n in call.filters}
             if any(k in ("custom", "unknown") for k in kinds.values()):
                 names = ", ".join(n for n, k in kinds.items() if k in ("custom", "unknown"))
                 issues.append(Issue(Status.MANUAL, f"dashboard uses custom filter(s) {names}; check that "
-                                    f"Pages.Hangfire covers their rules, then switch to {EXTENSION}() by hand", loc))
+                                    f"Pages.Hangfire covers their rules, then switch to {EXTENSION}() by hand", loc,
+                                    anchor=anchor, evidence=Evidence.CODE_ONLY, non_deterministic=True))
                 continue
             if not call.filters:
                 status, msg = Status.WARN, ("dashboard has no permission check (Hangfire default: local "
@@ -134,13 +151,15 @@ class HangfireDashboard(Check):
                                             "unvalidated token")
             if blocked:
                 msg += " (not auto-fixed yet: see note)"
-            issues.append(Issue(status, msg, loc, fixable=blocked is None))
+            issues.append(Issue(status, msg, loc, fixable=blocked is None, anchor=anchor,
+                                evidence=Evidence.CODE_ONLY))
 
         # A leftover template filter nobody uses any more (e.g. the call was switched by hand).
         for name, (path, text) in app_filters.items():
             if self._classify(name, app_filters) == "template" and self._deletable(repo, name, path, {}):
                 issues.append(Issue(Status.WARN, f"unused app-level filter {name} is still in the repository",
-                                    repo.loc(path, text, text.find(name)), fixable=True))
+                                    repo.loc(path, text, text.find(name)), fixable=True,
+                                    anchor=type_anchor(repo.rel(path), name), evidence=Evidence.VERIFIED_ARTEFACT))
 
         if blocked and calls:
             notes.append(blocked)

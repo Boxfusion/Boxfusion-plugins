@@ -95,6 +95,32 @@ handles and one shape it must refuse. Run:
 python <skill-dir>/scripts/test_checks.py
 ```
 
+## The shared determinism contract
+
+Every check emits into the shared schema (hub: `auditing-application-security`,
+`references/determinism-standard.md` + `references/check-registry.md`). When you add a check, also
+set its contract metadata so its findings are reproducible and not double-identified against the
+audit skill:
+
+- `canonical_id` = the **shared** registry CHECK-ID this fix owns (reuse the audit's id where the
+  issue overlaps; add `canonical_refs` for secondary ids). `canonical_id` defaults to `id` only for
+  app-only checks with no registry row.
+- the three scoring inputs `impact_class` / `reachability` / `data_sensitivity` (severity is
+  **derived** via `scored_severity()`, never asserted; the flat `severity` is a display alias). An
+  issue may override these per-anchor (e.g. a credentials-escalation that scores higher).
+- `root_cause` (an `RC-sec-*` id), `plan_id`, `regression_test`, and the decision-procedure fields
+  `decision_input` / `decision_predicate` / `decision_verdict` / `anchor_strategy`.
+- set `deterministic = False`, or mark individual `Issue(non_deterministic=True)`, for
+  MANUAL/undecidable cases - the normalizer drops them from the acceptance diff.
+
+On each `Issue`, set a **symbol/role `anchor`** (use `member_anchor` / `type_anchor` /
+`config_anchor` / `sln_anchor` from `core`, **never** a line number - `location` stays as the
+non-diffed display locator) and an `evidence` level (`CODE_ONLY` static, `VERIFIED_ARTEFACT`
+restored-DLL/scanner/grep, `REPRODUCED` live, `NOT_ASSESSED` when a capability is absent). Report
+secrets by `secret_fingerprint()` (presence + length + `sha256:<12>`) only, and pass the literal in
+`Edit(redactions=...)` so the shown diff is masked. Prove reproducibility with `diff_runs.py`
+(two scans on one commit → exit 0).
+
 ## Candidate checks
 
 These are findings from Shesha security audits that are fixable at application level:
@@ -102,11 +128,12 @@ These are findings from Shesha security audits that are fixable at application l
 | Candidate id | What | Notes |
 |---|---|---|
 | `admin-default-password` | `admin` / `123qwe` still authenticates | live-only; POST to Authenticate, report-only; framework issue #4614 |
-| `cors-origins` | `WithOrigins("*")` / `AllowAnyOrigin` with credentials in Startup | framework #4618 |
-| `security-headers` | no `UseSecurityHeaders()` / HSTS in Startup | framework #4660 |
-| `jwt-signing-key` | `Authentication:JwtBearer:SecurityKey` committed or left at the template value | framework #4250 |
-| `elmah-exposed` | `/elmah` reachable without a permission check | |
-| `swagger-in-production` | Swagger UI enabled outside Development | `SecuritySettings.SwaggerUiEnabled` defaults to true |
-| `rate-limiting` | no `AddRateLimiter` on login / OTP / password-reset for versions before 0.46 | framework #4771 (fixed on main only), #4773 |
-| `generate-app-service` | entities that must never have CRUD APIs lack `GenerateApplicationServiceState.DisableGenerateApplicationService` | |
+| `security-headers` | no `UseSecurityHeaders()` / HSTS in Startup | framework #4660 (registry A6/A7/A8) |
+| `elmah-exposed` | `/elmah` reachable without a permission check | registry A11 |
+| `swagger-in-production` | Swagger UI enabled outside Development | `SecuritySettings.SwaggerUiEnabled` defaults to true (registry A5/E2) |
+| `rate-limiting` | no `AddRateLimiter` on login / OTP / password-reset for versions before 0.46 | framework #4771 (fixed on main only), #4773 (registry J1/J3) |
+| `generate-app-service` | entities that must never have CRUD APIs lack `GenerateApplicationServiceState.DisableGenerateApplicationService` | registry D3 |
 | `per-user-lockout` | existing users with `IsLockoutEnabled = false` | live; follow-on to `user-lockout` |
+
+Implemented since: `jwt-signing-key` (section 5, registry B1/I2/SEC-P) and `cors-origins`
+(section 6, registry A2/A3/B3).

@@ -577,9 +577,18 @@ written on demand, never auto-synced by the framework).
   entities share one AppService/base class (e.g. a family of `*ImportResult` entities all written by
   subclasses of one `ImportAppServiceBase`), they all get that same base class's permission — check
   the base class once, not each subclass's call sites individually.
-- **No AppService/Controller anywhere** (confirmed by grepping the whole repo for the class name, not
-  just its own folder) → "unused". Disable entirely per § Disabling CRUD Generation Entirely above,
-  the same as any other confirmed-unused entity.
+- **No hand-written AppService, but the entity is genuinely consumed through the generic dynamic-CRUD
+  surface** (a form/integration hits `/api/dynamic/.../Crud/*` or `Entities/GetAll` for it — confirmed,
+  not merely "no C# service exists") → the **whole-table** case. There's no AppService to carry the
+  authorization, so **all five** dynamic nodes must be accounted for: set an explicit permission on
+  `Create`/`Update`/`Delete`, and either permission `Get`/`GetAll` too **or** leave them Inherited
+  **only** behind a verified `[GlobalSpecification]`. A `[GlobalSpecification]` is **required** here
+  (it is the only row-level control the entity has); its absence is an `INV-HAS-SPEC` finding in the
+  authorisation-inventory test. Do **not** disable the entity — it is in use.
+- **No AppService/Controller anywhere and nothing consumes the dynamic surface either** (confirmed by
+  grepping the whole repo for the class name, not just its own folder, and checking forms/integrations)
+  → "unused". Disable entirely per § Disabling CRUD Generation Entirely above, the same as any other
+  confirmed-unused entity.
 - **No exact permission concept exists for a lookup/reference entity** (e.g. a simple admin-managed
   dropdown table with no dedicated AppService of its own) → don't invent a new permission for it;
   reuse whichever existing "manage this category of config/reference data" permission is the closest
