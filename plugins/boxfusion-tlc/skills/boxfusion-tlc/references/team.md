@@ -85,7 +85,7 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 **Looks at:** the repo setup, CI and pipelines, configuration and secrets in config files, dependencies, and App Insights.
 **Check files:** `checks/operations.md`, `checks/safety-nets.md`.
 **Instrument:** runs **`hardening-shesha-app`** in scan mode for the app-level security settings (JWT lifetime, sign-out/token-blacklist, failed-login lockout, Hangfire dashboard) and relays each FAIL/WARN with its one-line *why*; the fixes themselves wait for the fix phase (or apply under `--auto-fix`).
-**Queries:** `references/appinsights-queries.kql`. Always weight counts by `itemCount`, because App Insights samples.
+**Queries:** `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`. Always weight counts by `itemCount`, because App Insights samples.
 **Answers:**
 - What fails in production, how often and where?
 - What is slow?

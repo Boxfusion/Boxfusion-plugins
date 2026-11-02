@@ -6,7 +6,7 @@ Shesha lets people build systems quickly without deep database knowledge, and th
 
 **ORM findings are overwhelmingly forward-looking.** On starter/near-empty data with no App Insights, nothing here can be *reproduced* as an incident; the honest level is `CODE-ONLY` and the wording is "the query grows with the table…", never "this is slow in production". Severity is still the intrinsic badness *if the table grows as designed* (ground rule 4), scored against the manifest's `severity_target`, and is **never** read off the copy's row count.
 
-**Best proof source (capability-gated):** App Insights `dependencies` (SQL calls) per request (`references/appinsights-queries.kql` §3 SQL-calls-per-request, §4 heaviest statements). They show directly how many queries one page load makes and how many rows travel. Code reading says what *might* happen; telemetry shows what *does*. Absent App Insights ⇒ the telemetry dimension is a first-class `NOT-ASSESSED(no-app-insights)` record, never a silent pass.
+**Best proof source (capability-gated):** App Insights `dependencies` (SQL calls) per request (`${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql` §3 SQL-calls-per-request, §4 heaviest statements). They show directly how many queries one page load makes and how many rows travel. Code reading says what *might* happen; telemetry shows what *does*. Absent App Insights ⇒ the telemetry dimension is a first-class `NOT-ASSESSED(no-app-insights)` record, never a silent pass.
 
 **Shesha 0.43 markup facts that help detection:** the form's data loader is in `formSettings.dataLoaderType`; post-load scripts are in `onAfterDataLoad`; entity permissions appear as `Shesha.Entity` (five rows per entity) and `Shesha.Entity.Action` permissioned objects. Business form markup usually lives in the **DB** (starter data), not the repo — only framework scaffolding forms ship in `App_Data/Upload/*.shaconfig`. When markup is not in the repo, the form-level dimensions of ORM-A/B/C/H are `NOT-ASSESSED(form-markup-not-in-repo)`, a stated gap, never a clear.
 
@@ -134,7 +134,7 @@ Each sub-predicate is its own finding; the Architect groups them at plan time (o
   - **ORM-D-c `ORM-D@<path>#<MappingProfile>` (per-row lazy dot-walk):** `MapFrom(b => b.Nav.Prop)` / `b.Nav.Other.Prop` applied per row with no `ProjectTo`/fetch plan. **impact_class=maintainability. Tagged `non_deterministic:true`** (quarantined — fetch-plan coverage needs a semantic analyzer).
   - Per-row fetches in form scripts (`Promise.all(items.map(i => http.get(…?id=i.id)))`) → gated with `ORM-A@forms`/markup.
 - **VERDICT/ANCHOR:** as above, per hit + fixed `ORM-D@telemetry` `NOT-ASSESSED(no-app-insights)` (per-request SQL-count proof).
-- **EVIDENCE:** CODE-ONLY; App Insights dependency count per request (`appinsights-queries.kql` §3 — dozens/hundreds of SQL calls) → CONFIRMED-IN-LOGS; SQL-profiler on a copy → REPRODUCED.
+- **EVIDENCE:** CODE-ONLY; App Insights dependency count per request (`${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql` §3 — dozens/hundreds of SQL calls) → CONFIRMED-IN-LOGS; SQL-profiler on a copy → REPRODUCED.
 - **REMEDIATION `PLAN-ORM-D`:** filter in the query (`Where` before `ToList`), eager-load/project what's needed (`ProjectTo`/explicit `select`), batch by id list (`id in [...]`); remove service resolution from mappers. *Seen in dispatcher: the crew form fetched each responder separately, and again on save.*
 - **REGRESSION TEST:** `DataAccess_NoNPlusOneUnderLoad_Test` — a list call under a seeded set asserts a bounded dependency count (not O(rows×navigations)).
 - **SEVERITY:** D-a/D-b dos × any_authenticated, +business → **Medium**; D-c maintainability → **Low** (quarantined).
@@ -192,7 +192,7 @@ An action returns a mapped **entity** (or a DTO still holding entity navigations
 - **INPUT:** `rg -n "Task<[^>]*>\s+\w+Async\s*\("` — read the return type; `rg -n "\[DisableValidation\]"` and raw `GetAll()` returns straight to the client.
 - **PREDICATE (deterministic):** a public action returns an **entity**, `List<Entity>` or `IEnumerable<Entity>`. **(quarantined sub):** a `…Dto` that still exposes entity-typed navigation properties — `non_deterministic:true` (needs type resolution; see Quarantine). A flat hand-projected DTO is **fine**.
 - **VERDICT/ANCHOR:** `ORM-I@<path>#<Type>.<Member>` per raw-entity-returning action (deterministic) / tagged `non_deterministic:true` for the DTO-shape sub + fixed `ORM-I@telemetry` `NOT-ASSESSED(no-app-insights)`.
-- **EVIDENCE:** CODE-ONLY; App Insights dependency count scaling with rows×navigations (`appinsights-queries.kql` §3) → CONFIRMED-IN-LOGS; SQL-profiler on one call → REPRODUCED.
+- **EVIDENCE:** CODE-ONLY; App Insights dependency count scaling with rows×navigations (`${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql` §3) → CONFIRMED-IN-LOGS; SQL-profiler on one call → REPRODUCED.
 - **REMEDIATION `PLAN-ORM-I`:** return a flat DTO projected in the query (`ProjectTo`/explicit `select`) with only the primitive/id fields the screen needs; never return a tracked entity graph.
 - **REGRESSION TEST:** `Action_ReturnsFlatDtoNoLazySerialisation_Test`.
 - **SEVERITY:** dos × any_authenticated, +business → **Medium**.

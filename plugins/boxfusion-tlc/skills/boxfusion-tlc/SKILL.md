@@ -254,7 +254,7 @@ The test fails today and must pass after the fix. Keep these tests on the `tlc/t
 - Record the reason per test: test name, result, and the one-line failure message. It goes in the report's Test index.
 - A test can also **disprove part of a finding** (e.g. an anonymous read reproduced while the anonymous write was refused). Then update the evidence level, the finding's title and wording, and its severity if needed, in the area file and the report.
 
-In deep mode, add App Insights (`references/appinsights-queries.kql`: aggregates, sampling-weighted, digits masked). **Escalate for production data** only when a QA-proven finding is serious and likely present in production, for example lost work, data exposure or a large failure rate. Explain why, ask the user to escalate to the IT Manager, and record the decision.
+In deep mode, add App Insights (`${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`: aggregates, sampling-weighted, digits masked). **Escalate for production data** only when a QA-proven finding is serious and likely present in production, for example lost work, data exposure or a large failure rate. Explain why, ask the user to escalate to the IT Manager, and record the decision.
 
 ### Phase 4: consolidation
 
@@ -315,7 +315,7 @@ Follow `references/self-improvement.md`.
 - `${CLAUDE_PLUGIN_ROOT}/shared/safety-and-data-access.md`: QA first, production escalation, isolation and canary, PII, synthetic logins.
 - `references/skills-to-use.md`: existing skills per phase and role, install commands, and slots for new ones.
 - `references/walkthrough.md`: Agree / Discuss, then "Let's begin!".
-- `references/appinsights-queries.kql`: aggregate, PII-masked telemetry queries.
+- `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`: aggregate, PII-masked telemetry queries.
 - `checks/*.md`: the check catalogue per area: `code.md`, `forms.md`, `operations.md`, `orm-shesha.md`, `safety-nets.md`, `security.md`, `sql.md`.
 - `sql/diagnostic-queries.sql`: SQL Server checks. Run with `sqlcmd -i`.
 - `${CLAUDE_PLUGIN_ROOT}/shared/templates/report.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`.
