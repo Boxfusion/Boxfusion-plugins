@@ -1,0 +1,90 @@
+// BoxFusion system diagnosis: App Insights queries (Logs, KQL mode).
+// RULES:
+// - Aggregates only. Never project individual requests, users, IPs or message text without masking.
+// - App Insights SAMPLES: always use sum(itemCount) for volumes, and check one figure against database counts.
+// - Mask digits in any message text: replace_regex(x, @"\d", "#").
+// - Retention is usually 90 days; say so when trends start mid-period.
+// - Operation names are like "POST <Service>/<Action> [area/version]". Use `contains`, because `has` matches whole terms only.
+
+// §0 What operations exist (find the names first)
+requests
+| where timestamp > ago(7d)
+| summarize est = sum(itemCount) by name
+| order by est desc
+| take 50;
+
+// §1 Failure rate per operation per month (writes first)
+requests
+| where timestamp > ago(90d)
+| where name startswith "POST" or name startswith "PUT" or name startswith "DELETE"
+| summarize total = sum(itemCount), r4xx = sumif(itemCount, toint(resultCode) between (400 .. 499)), r5xx = sumif(itemCount, toint(resultCode) >= 500)
+    by m = format_datetime(startofmonth(timestamp), "yyyy-MM"), name
+| extend failPct = round(100.0 * (r4xx + r5xx) / total, 1)
+| where total > 100 and failPct > 1
+| order by m asc, failPct desc;
+
+// §2 Slowest operations (volume x latency)
+requests
+| where timestamp > ago(30d)
+| summarize est = sum(itemCount), p50 = percentile(duration, 50), p95 = percentile(duration, 95), totalSec = sum(duration * itemCount) / 1000
+    by name
+| order by totalSec desc
+| take 30;
+
+// §3 SQL calls per request (N+1 and over-fetching detector)
+let reqs = requests | where timestamp > ago(7d) | project operation_Id, name, reqDuration = duration;
+dependencies
+| where timestamp > ago(7d)
+| where type == "SQL"
+| summarize sqlCalls = count(), sqlMs = sum(duration) by operation_Id
+| join kind=inner reqs on operation_Id
+| summarize requests = count(), avgSqlCalls = avg(sqlCalls), p95SqlCalls = percentile(sqlCalls, 95), avgSqlMs = avg(sqlMs), avgReqMs = avg(reqDuration)
+    by name
+| where avgSqlCalls > 10
+| order by avgSqlCalls desc
+| take 30;
+
+// §4 Heaviest SQL statements (text shape only, digits masked)
+dependencies
+| where timestamp > ago(7d) and type == "SQL"
+| extend shape = substring(replace_regex(data, @"\d", "#"), 0, 160)
+| summarize est = sum(itemCount), totalSec = sum(duration * itemCount) / 1000, p95 = percentile(duration, 95) by shape
+| order by totalSec desc
+| take 25;
+
+// §5 Exceptions by type and operation (masked)
+exceptions
+| where timestamp > ago(30d)
+| extend op = substring(operation_Name, 0, 70), msg = substring(replace_regex(outerMessage, @"\d", "#"), 0, 100), ty = tostring(split(type, ".")[-1])
+| summarize est = sum(itemCount) by ty, op, msg
+| order by est desc
+| take 30;
+
+// §6 Are failed requests' causes recorded at all? (observability check for one operation)
+let failed = requests | where timestamp > ago(30d) | where name contains "<OperationName>" and toint(resultCode) >= 400 | project operation_Id, resultCode;
+union exceptions, (traces | where severityLevel >= 2)
+| where timestamp > ago(30d)
+| join kind=inner failed on operation_Id
+| extend msg = substring(replace_regex(coalesce(outerMessage, message), @"\d", "#"), 0, 120)
+| summarize ops = dcount(operation_Id) by resultCode, t = coalesce(type, strcat("sev", severityLevel)), msg
+| order by ops desc;
+// No rows here = the system doesn't record WHY that operation fails (OPS-F).
+
+// §7 Outbound dependencies (SMS gateways, external APIs) by result
+dependencies
+| where timestamp > ago(30d) and type != "SQL"
+| summarize est = sum(itemCount), failed = sumif(itemCount, success == false), p95 = percentile(duration, 95) by type, target
+| extend failPct = round(100.0 * failed / est, 1)
+| order by failed desc
+| take 30;
+
+// §8 SignalR: negotiate/connect outcomes
+requests
+| where timestamp > ago(30d) and name contains "signalr"
+| summarize est = sum(itemCount) by name, resultCode
+| order by est desc;
+
+// §9 Telemetry volume per table (what is collected at all)
+union withsource = tbl requests, exceptions, traces, dependencies, customEvents
+| where timestamp > ago(30d)
+| summarize rows = count(), estimated = sum(itemCount), warnPlus = countif(severityLevel >= 2) by tbl;
