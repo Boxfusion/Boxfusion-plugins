@@ -161,12 +161,17 @@
 | SEC-K | Workflow self-approval / wrong-actor | auth_bypass | any_authenticated | business | **ND** (probe + semantic) | access-control |
 | SEC-L | Property-level authz / over-posting | data_integrity | any_authenticated | business | **ND** | access-control |
 | SEC-M | Mass-import endpoint unguarded | auth_bypass | any_authenticated | business | DET (catalogue) | auditing |
-| SEC-N | *(to be defined from the TLC security division before porting)* | — | — | — | — | — |
+| SEC-F | SignalR / real-time hub without auth or with client-chosen groups | data_exposure_pii | anonymous | pii_basic | DET (static) + **ND** (connect probe) | auditing |
+| SEC-G | Injection & unsafe input (XSS / XXE / deserialization / open-redirect / HQLi / CSV), per-vector | data_exposure_pii | any_authenticated | pii_basic | DET (per-vector static) | auditing |
+| SEC-J | Message consumer trusts message content as input (EasyNetQ / MassTransit) | data_integrity | any_authenticated | business | DET (static) | auditing |
+| SEC-N | SSRF — outbound target from request / entity / user-editable setting, no allow-list or private-range block | info_leak | any_authenticated | none | DET (static) + **ND** (probe) | auditing |
 | SEC-O | *(covered — folds into A1–A3/B3)* | — | — | — | — | — |
 | SEC-P | Starter JWT key identical across Shesha systems (forgeable) | auth_bypass | anonymous | none | DET (fingerprint list) | auditing detect → hardening fix |
 | SEC-R | Background-job / consumer trusts caller | auth_bypass | any_authenticated | business | **ND** (probe) | auditing |
 | SEC-S | Tenant isolation absent | data_exposure_pii | any_authenticated | popia_special | **ND** | access-control |
 | INV-CHK | Inverse permission-checker (`default: return false` voids all grants) | auth_bypass | any_authenticated | business | DET (grep) + ND (grants-have-effect probe) | auditing detect → access-control fix |
+
+**Full detection specs for SEC-F, SEC-G, SEC-J and SEC-N:** `references/security-checks.md` (INPUT / PREDICATE / ANCHOR / EVIDENCE / REMEDIATION / REGRESSION / SEVERITY per check). These were the detection gaps left when the TLC security hardening was flowed back into this skill.
 
 ---
 
@@ -175,4 +180,4 @@
 1. **Prefix-collision fixes:** `G1-secrets` → **B7**; dependency `D1/D2` → **K1/K2**. (The current code's first-letter grouping in `verify_run.py`/`merge_findings` mis-buckets these.)
 2. **Severity-mismatch fixes:** A3 **Critical** only as wildcard+credentials (A2+A3); D5 solution-wide **Medium** tally vs the per-entity **H5 High**; J3 **High**.
 3. **DET vs ND split:** only the ~18 DET checks enter the byte-identity acceptance diff now; the ND ones carry `non_deterministic:true` until the Roslyn analyzer (SEC_A/H, C5) and probe-result normalization land. This is honest, not a downgrade.
-4. **SEC-N is undefined** in the branch — needs its definition from the TLC security division before it's added.
+4. **SEC-N is now defined** (SSRF) and added, alongside the other previously-missing detection checks **SEC-F** (SignalR), **SEC-G** (injection) and **SEC-J** (message-consumer input surface) — full specs in `references/security-checks.md`. This closes the detection gaps found by comparing the standalone skill against TLC's `checks/security.md`.
