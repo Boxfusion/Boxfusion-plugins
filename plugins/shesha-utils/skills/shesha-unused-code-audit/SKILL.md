@@ -14,7 +14,7 @@ The whole skill rests on one asymmetric rule: **a wrongly-kept dead endpoint is 
 "Unused" is not one question — it is three, and a confident proposal needs all the signals that apply to agree:
 
 1. **Static references** — is the symbol referenced anywhere in the back-end or front-end source, including DI registration, reflection, specifications, validators, workflow service tasks and scheduled jobs? (A grep/analyzer pass. Catches "nothing in the code names it.")
-2. **Form configurations** — is it reached by any Shesha **form**? Forms call endpoints nine different ways (dialogs, subforms, reference lists, data sources, embedded scripts, actions…), none of which look like a code reference. (Reuse `${CLAUDE_PLUGIN_ROOT}/shared/`-level form-reference knowledge and the forms division's `form-reference-mechanisms`.)
+2. **Form configurations** — is it reached by any Shesha **form**? Forms call endpoints nine different ways (dialogs, subforms, reference lists, data sources, embedded scripts, actions…), none of which look like a code reference. (Reuse the form-reference knowledge in `${CLAUDE_PLUGIN_ROOT}/skills/auditing-application-security/references/form-reference-mechanisms.md`.)
 3. **App Insights telemetry** — was it **actually called** in the retention window? This is the signal the other two cannot give: an endpoint can be statically referenced by a caller that is *itself* dead, and only telemetry proves it never runs. (Uses `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`.)
 
 **How they combine into a verdict:**
@@ -56,7 +56,7 @@ The whole skill rests on one asymmetric rule: **a wrongly-kept dead endpoint is 
 
 ## Safety gates (do NOT propose removal when any applies — record REVIEW + reason)
 
-Extends `auditing-application-security`'s `references/disabling-unused-endpoints.md`; aligned with it, widened to all code:
+Extends `${CLAUDE_PLUGIN_ROOT}/skills/auditing-application-security/references/disabling-unused-endpoints.md`; aligned with it, widened to all code:
 1. A **backend caller** exists (service tasks, scheduled jobs, notification senders, validators, specifications, message consumers reference symbols with no front-end involvement).
 2. It is reached by a **package-owned form or page** whose source was not scanned ("not scanned" ≠ "no caller").
 3. It plausibly serves an **external integration** (import/export, webhook receiver, third-party-named) — only the user knows; ask.

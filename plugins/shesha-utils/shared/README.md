@@ -14,6 +14,10 @@ ${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md
 
 Never copy a file out of `shared/` into a skill folder, and never use `../` or absolute paths to reach it — the variable is the only supported, cache-safe way.
 
+### Resolving `${CLAUDE_PLUGIN_ROOT}` when you see it literally
+
+Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` to the plugin's install directory **inside a `SKILL.md`**. In bundled files — this `shared/` folder, and each skill's `checks/` and `references/` files — the variable appears **literally**. Any agent that reached one of those files did so from a skill whose `SKILL.md` already showed the resolved root, so **resolve a literal `${CLAUDE_PLUGIN_ROOT}` to that same plugin directory** (equivalently, the directory this `shared/` folder sits in, i.e. `<plugin-root>/shared/` → `<plugin-root>`). When the conductor dispatches an inspector with a brief, it substitutes the resolved root for any `${CLAUDE_PLUGIN_ROOT}` the brief carries, so the inspector never has to.
+
 ## Contents
 
 | File | What it is |

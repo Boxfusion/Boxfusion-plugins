@@ -222,7 +222,7 @@ Before launching, the main session assigns **topic ownership** and **ID ranges**
 
 **Run the settings probe first** (`auditing-application-security` SEC-I). On Shesha 0.43.x–0.44.x it can find secrets readable anonymously (confirmed present through 0.44.2 by decompile; re-verify per version). A hit is an urgent stop (see "What the user sees during a run").
 
-**Dispatch** the division skills in `references/team.md` **in parallel**, invoking each by name. Each gets `01-recon.md`, `00-test-readiness.md`, its topic list, the capability manifest and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`; each skill carries its own check catalogue:
+**Dispatch** the division skills in `references/team.md` **in parallel**, invoking each by name. Each gets `01-recon.md`, `00-test-readiness.md`, its topic list, the capability manifest and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`; each skill carries its own check catalogue. (When you hand a brief or a bundled-file path to a dispatched inspector, substitute your resolved `${CLAUDE_PLUGIN_ROOT}` for any literal occurrence — Claude Code auto-substitutes it only inside a `SKILL.md`, not in `shared/`/`checks/`/`references/` files.)
 
 | Role | Division skill to invoke (by name) |
 |---|---|

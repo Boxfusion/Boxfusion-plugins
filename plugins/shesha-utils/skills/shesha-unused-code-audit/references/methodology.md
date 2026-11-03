@@ -17,7 +17,7 @@ For each candidate symbol, gather the signals that apply to its kind, then combi
 | Signal | Source | Evidence when "unused" | Applies to |
 |---|---|---|---|
 | **static** | back-end + front-end source grep / Roslyn | no reference found → `CODE-ONLY` | every kind |
-| **forms** | form catalogues + `form-reference-mechanisms` | reached by no form | endpoints, entities, ref-lists, forms |
+| **forms** | form catalogues + `form-reference-mechanisms.md` (in `auditing-application-security`) | reached by no form | endpoints, entities, ref-lists, forms |
 | **telemetry** | App Insights (`${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`) | zero calls over the window → `CONFIRMED-IN-LOGS`; App Insights absent → `NOT-ASSESSED(no-telemetry)` | endpoints, services, jobs, consumers |
 
 **Verdict (disposition):**
@@ -45,7 +45,7 @@ Each row: INPUT → PREDICATE → ANCHOR. Raise a candidate **iff** the predicat
 
 ## 4. Safety gates — never PROPOSE-REMOVE when any applies (record REVIEW + reason)
 
-Extends `auditing-application-security/references/disabling-unused-endpoints.md`; aligned, widened to all code.
+Extends `${CLAUDE_PLUGIN_ROOT}/skills/auditing-application-security/references/disabling-unused-endpoints.md`; aligned, widened to all code.
 
 1. **A backend caller exists.** Search source for the type/service/member name before proposing: `grep -rn "Name" backend/src --include=*.cs | grep -v "/obj/"`. Workflow service tasks, scheduled jobs, notification senders, validators, specifications and message consumers all reference symbols with no front-end involvement.
 2. **Reached by a package-owned form/page** whose source was not scanned. The row's `packageSourcesNotScanned` marks it → stays REVIEW. "Not scanned" ≠ "no caller."
@@ -53,7 +53,7 @@ Extends `auditing-application-security/references/disabling-unused-endpoints.md`
 4. **Dynamic / reflective use** — reflection, DI-by-convention, dynamically-built form references, catalogue `indeterminate`/`unresolvable` entries, serialization-only types.
 5. **More than one front end** (admin + public, or a mobile app) and only one scanned → downgrade every unreferenced result to REVIEW.
 6. **Incomplete / stale input** — Swagger unavailable, catalogues from different backend states, telemetry window shorter than the feature cadence, front-end not built.
-7. **Infrastructure keep-list** — framework endpoints the SPA calls indirectly (auth, config, permissions, reference-data, file store). Reuse the keep-list in `disabling-unused-endpoints.md`.
+7. **Infrastructure keep-list** — framework endpoints the SPA calls indirectly (auth, config, permissions, reference-data, file store). Reuse the keep-list in `${CLAUDE_PLUGIN_ROOT}/skills/auditing-application-security/references/disabling-unused-endpoints.md`.
 
 ## 5. Capability gating (operating-standard §1)
 
