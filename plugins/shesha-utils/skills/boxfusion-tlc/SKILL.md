@@ -232,6 +232,7 @@ Before launching, the main session assigns **topic ownership** and **ID ranges**
 | ORM / Shesha specialist | `shesha-orm-review` |
 | Security reviewer | `auditing-application-security` (+ `hardening-shesha-app` and `shesha-access-control` for fixes) |
 | Forms analyst | `shesha-forms-review` |
+| Maintainability (unused code) | `shesha-unused-code-audit` (propose-only removals; combines static refs + form configs + App Insights) |
 
 Each returns findings in the `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md` format, plus "checked and fine", questions for the BA and concerns for the PM. Subagents may be unable to write files, so **the main session saves** each area file to `diagnosis/findings/<area>.md`, using the method in `references/team.md` → "Saving hand-backs". Hand-backs are saved, not shown to the user. Inspectors leave the working tree exactly as they found it: check `git status` before and after.
 

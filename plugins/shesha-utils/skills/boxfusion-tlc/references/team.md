@@ -56,6 +56,7 @@ One table for areas, ID prefixes, division skills and owners. The `--area` flag 
 | `security` | `SEC-` | `auditing-application-security` (detect) · `hardening-shesha-app`, `shesha-access-control` (fix) | Security reviewer |
 | `ops` | `OPS-` (safety nets included) | `shesha-operations-review` | DevOps engineer |
 | `forms` | `FORM-` | `shesha-forms-review` | Forms analyst |
+| `unused` | `UNUSED-` | `shesha-unused-code-audit` (propose-only; cross-signal: code + forms + telemetry) | Maintainability |
 
 When two inspectors share a prefix, give each a **non-overlapping range** in the brief, e.g. Forms by module: `FORM-1..39` for one module group and `FORM-40..` for the rest. Never "start at 20": the first analyst may reach 20 and the ids clash. Leave gaps; the Senior Engineer doesn't renumber.
 
