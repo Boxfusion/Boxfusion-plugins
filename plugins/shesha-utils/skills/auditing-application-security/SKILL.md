@@ -84,6 +84,7 @@ Reference files, each read when its step is reached — not up front:
 | `references/enforcement-rules.md` | Step 8 — how authorization is actually enforced at runtime |
 | `references/catalog-schemas.md` | Step 9 — what every field in the catalogue means |
 | `references/app-vulnerability-baseline.md` | Step 8 — what this repository owns and can fix |
+| `references/security-checks.md` | Step 8 — detection specs for SEC-F (SignalR), SEC-G (injection), SEC-J (message-consumer input), SEC-N (SSRF) |
 | `references/package-fix-matrix.md` | Step 8 — confirming a framework fix without framework source |
 | `references/disabling-unused-endpoints.md` | Step 10 — the safety gates before recommending a disable |
 | `references/recommendations-format.md` | Step 11 — how to write the report |
