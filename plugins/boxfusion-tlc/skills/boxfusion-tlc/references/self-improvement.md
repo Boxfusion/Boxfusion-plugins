@@ -36,7 +36,7 @@ Collect candidates during the run, in `diagnosis/LEARNINGS.md`:
    A short invented example is fine ("an app service that takes a personId from the request"). The system's real code is not.
 2. **Place it** where the skill already keeps that kind of knowledge:
    - `checks/<area>.md` (in the same what / why / detect / prove / plan shape);
-   - `sql/diagnostic-queries.sql` or `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`;
+   - `shesha-sql-review` or `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`;
    - `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md` (caveats, with the Shesha version);
    - `references/*.md` for process faults.
 3. **Don't duplicate.** If the catalogue already covers it, improve that entry instead.

@@ -46,16 +46,16 @@ Subagents may be unable to write files, so the main session saves their results.
 
 ## ID ranges
 
-One table for areas, ID prefixes, check files and owners. The `--area` flag and the finding's **Area** field use the same area names.
+One table for areas, ID prefixes, division skills and owners. The `--area` flag and the finding's **Area** field use the same area names. The conductor **invokes the division skill by name**; each skill owns its own check catalogue.
 
-| Area (`--area`) | ID prefix | Check file | Owner |
+| Area (`--area`) | ID prefix | Division skill (invoke by name) | Owner |
 |---|---|---|---|
-| `code` | `CODE-` (front end as its own range, e.g. `CODE-100..`) | `checks/code.md` | Developer |
-| `sql` | `SQL-` | `checks/sql.md` | SQL developer |
-| `orm` | `ORM-` | `checks/orm-shesha.md` | ORM / Shesha specialist |
-| `security` | `SEC-` | `checks/security.md` | Security reviewer |
-| `ops` | `OPS-` (safety nets included) | `checks/operations.md`, `checks/safety-nets.md` | DevOps engineer |
-| `forms` | `FORM-` | `checks/forms.md` | Forms analyst |
+| `code` | `CODE-` (front end as its own range, e.g. `CODE-100..`) | `shesha-code-review` | Developer |
+| `sql` | `SQL-` | `shesha-sql-review` | SQL developer |
+| `orm` | `ORM-` | `shesha-orm-review` | ORM / Shesha specialist |
+| `security` | `SEC-` | `auditing-application-security` (detect) · `hardening-shesha-app`, `shesha-access-control` (fix) | Security reviewer |
+| `ops` | `OPS-` (safety nets included) | `shesha-operations-review` | DevOps engineer |
+| `forms` | `FORM-` | `shesha-forms-review` | Forms analyst |
 
 When two inspectors share a prefix, give each a **non-overlapping range** in the brief, e.g. Forms by module: `FORM-1..39` for one module group and `FORM-40..` for the rest. Never "start at 20": the first analyst may reach 20 and the ids clash. Leave gaps; the Senior Engineer doesn't renumber.
 
@@ -83,7 +83,7 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 
 ### DevOps engineer
 **Looks at:** the repo setup, CI and pipelines, configuration and secrets in config files, dependencies, and App Insights.
-**Check files:** `checks/operations.md`, `checks/safety-nets.md`.
+**Division skill:** `shesha-operations-review` (operations + safety-nets).
 **Instrument:** runs **`hardening-shesha-app`** in scan mode for the app-level security settings (JWT lifetime, sign-out/token-blacklist, failed-login lockout, Hangfire dashboard) and relays each FAIL/WARN with its one-line *why*; the fixes themselves wait for the fix phase (or apply under `--auto-fix`).
 **Queries:** `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`. Always weight counts by `itemCount`, because App Insights samples.
 **Answers:**
@@ -96,14 +96,14 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 
 ### Developer
 **Looks at:** application code, back end and front end.
-**Check file:** `checks/code.md`.
+**Division skill:** `shesha-code-review`.
 **Answers:**
 - Where does the code violate basic engineering practice in ways that cause real problems?
 - Which patterns repeat?
 
 ### SQL developer
 **Looks at:** schema, indexes, stored procedures, functions, views, raw SQL in code, and migrations.
-**Check file:** `checks/sql.md`, run with `sql/diagnostic-queries.sql` against the local copy.
+**Division skill:** `shesha-sql-review` (carries the SQL checks and the diagnostic queries; run against the isolated local copy).
 **Answers:**
 - Which queries will degrade or break as data grows?
 - Which procedures are wrong, slow or dangerous?
@@ -111,13 +111,13 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 
 ### ORM / Shesha specialist
 **Looks at:** entity mappings, how data is fetched (dynamic CRUD, GraphQL, `GetAll`, repositories, lazy loading), and specifications and filters.
-**Check file:** `checks/orm-shesha.md`.
+**Division skill:** `shesha-orm-review`.
 **Answers:**
 - Where does the system fetch far more data than it shows, search every field, skip paging, or load related records the slow way?
 
 ### Security reviewer
 **Looks at:** authentication and authorisation, endpoint permissions, client-trusted parameters, secrets, generic endpoints, SignalR authentication, and data exposure.
-**Check file:** `checks/security.md`.
+**Division skill:** `auditing-application-security`.
 **Instruments:** runs **`auditing-application-security`** for the endpoint/entity/form/permission catalogue, the low-privilege and anonymous probes, and the curated probe matrix (`skills-to-use.md`); builds on its catalogue rather than re-cataloguing by hand. Where the skill isn't installed, falls back to `harden-permissions` + `security-review` and records the gap.
 **Runs first:** the settings probe (SEC-I) and the framework-table probe (SEC-C), including the curated matrix (OtpAuditItem reset tokens, the hidden endpoints). A secret readable anonymously is an urgent stop.
 **Runs the cross-area pass (SEC-K):** takes the Forms/Developer/ORM handovers about workflow and status writes and traces each through the live BPMN to the server step that really runs — this is where approve-your-own, status-from-browser, gates-after-submit and test/debug payroll endpoints are caught, which the endpoint catalogue alone misses.
@@ -128,7 +128,7 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 
 ### Forms analyst
 **Looks at:** Shesha form configurations, the **live versions in the environment's database, not the repo copy**, and their scripts and data sources.
-**Check file:** `checks/forms.md`.
+**Division skill:** `shesha-forms-review`.
 **Answers:**
 - What is each form meant to do, and what does it actually do?
 - Where do form scripts cause wrong data, failed saves or wasted requests?
@@ -165,7 +165,7 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 ### Architect (Phase 4)
 **Reviews** the Senior Engineer's draft and returns the "Architect review" section, which goes right after the summary:
 - **Root causes (RC1, RC2, …):** the causes behind clusters of findings, e.g. "there is no shared access-scope rule, so every endpoint re-implements or forgets it". A table: root cause, findings it explains, framework-native structural fix.
-- **A standing regression guard per root cause** where one exists. For an access-control root cause, always recommend the **authorisation inventory test** (`checks/security.md` SEC-C): without it the problem returns with the next endpoint.
+- **A standing regression guard per root cause** where one exists. For an access-control root cause, always recommend the **authorisation inventory test** (`auditing-application-security` SEC-C): without it the problem returns with the next endpoint.
 - **Fix sequence:** phases with dependencies and the decisions that gate them. Sequence is not severity.
 - **Emergency shortcuts register:** each shortcut, why it is an emergency, the native end state, and the follow-up trigger. Distinguish documented framework caveats and operational steps (e.g. credential rotation), which are not shortcuts.
 - **Ranking challenges:** raise, lower, keep with a note. Unproven criticals: reproduce before the walkthrough, or word them "the configuration allows…".

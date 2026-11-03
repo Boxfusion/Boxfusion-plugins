@@ -44,7 +44,7 @@ A run is quiet. The user sees only:
 Rules:
 - Inspector, fact-checker, tester and consolidation hand-backs go **straight into their files** (`diagnosis/findings/<area>.md`, `REPORT.md`). Never echo them, or summaries of them, into the chat.
 - No tool noise, no interim finding lists, no "here is what the Security inspector found".
-- **The one exception is an urgent stop:** a critical exposure that is live now (e.g. the settings probe in `checks/security.md` SEC-I returns a secret anonymously). Give a short alert: what is exposed, where, the evidence level, and the one action to take now (usually "tell the IT Manager"). Then carry on quietly.
+- **The one exception is an urgent stop:** a critical exposure that is live now (e.g. the settings probe in `auditing-application-security` SEC-I returns a secret anonymously). Give a short alert: what is exposed, where, the evidence level, and the one action to take now (usually "tell the IT Manager"). Then carry on quietly.
 - Questions to the user are still asked when something truly blocks progress (an expired feed token, production escalation).
 
 ## Ground rules (always)
@@ -129,7 +129,7 @@ Keep it to one message, and detect before asking.
 
 *Depth — how hard it looks:*
 - `--quick` (default when no App Insights): static analysis plus the low-privilege and anonymous probes; skips Phase 3's telemetry proof and production escalation.
-- `--static`: static analysis only — **no backend is started and no DB is restored**. Every detection that needs a running backend (the SEC-C/SEC-I anonymous and low-privilege probes, OtpAuditItem/`/elmah`/Hangfire/`/graphql` live checks, all `sql/diagnostic-queries.sql` output, OPS-A..E telemetry, live form-version drift) is reported **CODE-ONLY or "not assessed"**, never claimed as observed. This is the safe first-pass / propose-only / no-copy mode. `--quick` with no DB copy available degrades to exactly this.
+- `--static`: static analysis only — **no backend is started and no DB is restored**. Every detection that needs a running backend (the SEC-C/SEC-I anonymous and low-privilege probes, OtpAuditItem/`/elmah`/Hangfire/`/graphql` live checks, all `shesha-sql-review` output, OPS-A..E telemetry, live form-version drift) is reported **CODE-ONLY or "not assessed"**, never claimed as observed. This is the safe first-pass / propose-only / no-copy mode. `--quick` with no DB copy available degrades to exactly this.
 - `--deep` (default when App Insights access exists): adds telemetry proof and, if justified, production escalation, **and** the e2e harness and specs.
 - E2e is the single heaviest step, so it is **opt-in**: it runs only under `--deep`, or when `--e2e` is passed on its own. Back-end integration tests (Phase 0) are not e2e and run whenever the harness builds — but only in `--interactive`/`--auto-fix`; `--educational` and `--static` inventory coverage without building it.
 - **Tag per check by evidence source.** Each Detect/Prove bullet draws on one of: **file** (repo read/grep — always available), **decompile** (ilspycmd on a pinned DLL — available static, settles framework facts), **DB** (a restored copy — needs a backend/restore), **App Insights** (telemetry — needs access), **DevOps-API** (pipelines/branch policies — needs the Azure DevOps API). Only **file** and **decompile** run under `--static`; DB/App Insights/DevOps-API detections are marked **"not assessed"**, never "fine". When a bullet's source is ambiguous, name it so the inspector knows whether it can claim the result on this run.
@@ -139,7 +139,7 @@ Keep it to one message, and detect before asking.
 - `--security-only`: run **only the security division** — see "The `--security-only` mode" below. For rapid, repeatable security sweeps across many systems (the primary mode after a breach), by one person over every project or by a team splitting the projects between them.
 
 **The `--security-only` mode.** A focused, shippable security sweep. It runs the security division and nothing else, to one standard, so two operators on the same repo+environment get the same security findings and the same remediation plan (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md`).
-- **In scope:** every `checks/security.md` check (SEC-A…SEC-S — the SEC-A…SEC-O set plus the R14 coverage additions SEC-P JWT-trust, SEC-Q GraphQL data-plane, SEC-R background-job trust, SEC-S tenant isolation), plus the security-relevant checks owned by other areas that the Security reviewer already consumes as handovers — the permission-checker and trusted-header/anonymous-endpoint items in `checks/code.md` (CODE-G-1 inverse permission-checker, CODE-F-1/F-2 server-trusted scope header, CODE-G-3 anonymous test endpoints) and the workflow-in-browser items in `checks/forms.md` (FORM-G, FORM-D) that feed **SEC-K**. SEC-K stays in scope: it is cross-area, so the run still reads the forms/workflow/code it needs to trace a business flow, but only for the security question.
+- **In scope:** every `auditing-application-security` check (SEC-A…SEC-S — the SEC-A…SEC-O set plus the R14 coverage additions SEC-P JWT-trust, SEC-Q GraphQL data-plane, SEC-R background-job trust, SEC-S tenant isolation), plus the security-relevant checks owned by other areas that the Security reviewer already consumes as handovers — the permission-checker and trusted-header/anonymous-endpoint items in `shesha-code-review` (CODE-G-1 inverse permission-checker, CODE-F-1/F-2 server-trusted scope header, CODE-G-3 anonymous test endpoints) and the workflow-in-browser items in `shesha-forms-review` (FORM-G, FORM-D) that feed **SEC-K**. SEC-K stays in scope: it is cross-area, so the run still reads the forms/workflow/code it needs to trace a business flow, but only for the security question.
 - **Out of scope (say so, don't silently drop):** performance, ORM scale, SQL craftsmanship, ops/telemetry, forms UX, code quality that isn't security-relevant. The report names these as "not in scope for `--security-only` — run a full sweep for these."
 - **Phases:** 1 (recon — security-relevant facts + the Capability Manifest), 2 (security inspection; **SEC-I settings probe first**), 2b (fact-check every critical/high), 3 (proof — live probes/tests where the manifest allows), 5 (a security-only report). Phase 0 test-coverage is **inventory-only** here (no harness authoring) unless combined with `--interactive`/`--auto-fix`. Phase 8 (learn) still runs.
 - **Combines with the autonomy and depth axes:** `--security-only --educational` (read-only security report — the default and the safe one for a team sweep), `--security-only --interactive` (walk + fix the agreed security findings), `--security-only --auto-fix` (apply only the allowlisted mechanical security fixes — token lifetime, sign-out, lockout, Hangfire, CORS allow-list, security headers, gate anon elmah/swagger/graphql — via `hardening-shesha-app`). Depth (`--static`/`--quick`/`--deep`) controls live probing exactly as elsewhere.
@@ -192,7 +192,7 @@ Every finding has to be proven by a test that reproduces it, and test coverage i
    Ask the user only for software that needs a system install. A missing Java runtime is **not** a blocker: it only stops the Allure HTML report (Allure 2 CLI). Tests, JUnit XML, the Playwright report and the markdown dashboard all work without it, so carry on and note it.
 
    Pause only if something truly blocks progress.
-5. **Baseline.** Run everything once and record the results. Tests that fail on the untouched system are early findings. Record which existing tests can't start and why (see `checks/safety-nets.md`), and which modules can't be tested against a database at all (e.g. a module that starts its own message bus at start-up).
+5. **Baseline.** Run everything once and record the results. Tests that fail on the untouched system are early findings. Record which existing tests can't start and why (see `shesha-operations-review`), and which modules can't be tested against a database at all (e.g. a module that starts its own message bus at start-up).
 6. **Report it** in `diagnosis/00-test-readiness.md`, in plain English: what existed, what was added, what isolation was done, and what still can't be tested and why. It becomes the report's section 0.
 7. **Feed forward.**
    - Inspectors receive the inventory and note whether a behaviour is already tested.
@@ -204,7 +204,7 @@ Every finding has to be proven by a test that reproduces it, and test coverage i
 The inputs come from the Start step. If only a development database exists, label it as such, and mark data and performance checks as limited.
 
 Record everything in `diagnosis/01-recon.md`, taking every fact from a command or a file, not memory. **Also emit the machine-readable Capability Manifest `manifest.json` (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md` §1)** — every field resolved by a command, never by belief: repo commit + tree-state, stack versions + `$DLL` path, and each capability (db copy + canary, backend + url, low-priv account, App Insights, private feeds, and tool presence/versions for gitleaks/ilspycmd/dotnet/sqlcmd/playwright), plus the mandatory declared `severity_target`. The manifest is what makes two runs comparable (same manifest ⇒ comparable; differences are expected only where capabilities differ). Recon prose and the manifest agree because both are built from the same commands.
-- stack and versions (.NET, ABP, the **Shesha version**, Node, DBMS). **Resolve the Shesha version from `backend/Directory.Build.props` `$(SheshaVersion)` (and `project.assets.json`), not from a prose file** — a starter's `VersionInformantion.md` / README often states the *starter-template* version (e.g. "v0.30.1") which is NOT the framework version, and the per-project `.csproj` references the MSBuild variable `$(SheshaVersion)` rather than a literal, so a csproj grep for a version number finds nothing. Cross-check with `@shesha-io/reactjs` in the portal. **Also record the DBMS(es):** a Shesha starter is often **dual-DBMS (SQL Server + PostgreSQL)** — note which the system actually runs, because the SQL checks and tooling assume SQL Server (see `checks/sql.md`). **Verify VCS state with `git rev-parse` / `git status`, not the environment banner** — the harness "Is a git repository" line is sometimes wrong (it has reported `false` for a repo with thousands of commits).
+- stack and versions (.NET, ABP, the **Shesha version**, Node, DBMS). **Resolve the Shesha version from `backend/Directory.Build.props` `$(SheshaVersion)` (and `project.assets.json`), not from a prose file** — a starter's `VersionInformantion.md` / README often states the *starter-template* version (e.g. "v0.30.1") which is NOT the framework version, and the per-project `.csproj` references the MSBuild variable `$(SheshaVersion)` rather than a literal, so a csproj grep for a version number finds nothing. Cross-check with `@shesha-io/reactjs` in the portal. **Also record the DBMS(es):** a Shesha starter is often **dual-DBMS (SQL Server + PostgreSQL)** — note which the system actually runs, because the SQL checks and tooling assume SQL Server (see `shesha-sql-review`). **Verify VCS state with `git rev-parse` / `git status`, not the environment banner** — the harness "Is a git repository" line is sometimes wrong (it has reported `false` for a repo with thousands of commits).
 - **module map (multi-module systems):** list the back-end modules and front-end portals (and their individual package versions — portals drift). Emit this map so inspectors partition by module; the `team.md` ID ranges assume one or two modules, so for N modules give each module its own ID band (e.g. `FORM-<module#>00..`) rather than the fixed two-way split.
 - the main entities and roles, and how access is meant to be restricted;
 - deployment history (migration dates, form configuration versions, config packages);
@@ -220,18 +220,18 @@ Record everything in `diagnosis/01-recon.md`, taking every fact from a command o
 
 Before launching, the main session assigns **topic ownership** and **ID ranges** so findings aren't duplicated (`references/team.md`, "Topic ownership" and "ID ranges"). Inspectors that spot something in another owner's topic add a one-line "handover" instead of a full finding, and refer to other areas by topic, not by guessed ids.
 
-**Run the settings probe first** (`checks/security.md` SEC-I). On Shesha 0.43.x–0.44.x it can find secrets readable anonymously (confirmed present through 0.44.2 by decompile; re-verify per version). A hit is an urgent stop (see "What the user sees during a run").
+**Run the settings probe first** (`auditing-application-security` SEC-I). On Shesha 0.43.x–0.44.x it can find secrets readable anonymously (confirmed present through 0.44.2 by decompile; re-verify per version). A hit is an urgent stop (see "What the user sees during a run").
 
-Launch the specialists in `references/team.md` **in parallel**. Each gets its check file, `01-recon.md`, `00-test-readiness.md`, its topic list and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`:
+**Dispatch** the division skills in `references/team.md` **in parallel**, invoking each by name. Each gets `01-recon.md`, `00-test-readiness.md`, its topic list, the capability manifest and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`; each skill carries its own check catalogue:
 
-| Role | Check catalogue |
+| Role | Division skill to invoke (by name) |
 |---|---|
-| DevOps engineer | `checks/operations.md`, `checks/safety-nets.md`, App Insights queries |
-| Developer | `checks/code.md` |
-| SQL developer | `checks/sql.md` plus `sql/diagnostic-queries.sql` |
-| ORM / Shesha specialist | `checks/orm-shesha.md` |
-| Security reviewer | `checks/security.md` |
-| Forms analyst | `checks/forms.md` |
+| DevOps engineer | `shesha-operations-review` (operations + safety-nets + App Insights queries) |
+| Developer | `shesha-code-review` |
+| SQL developer | `shesha-sql-review` |
+| ORM / Shesha specialist | `shesha-orm-review` |
+| Security reviewer | `auditing-application-security` (+ `hardening-shesha-app` and `shesha-access-control` for fixes) |
+| Forms analyst | `shesha-forms-review` |
 
 Each returns findings in the `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md` format, plus "checked and fine", questions for the BA and concerns for the PM. Subagents may be unable to write files, so **the main session saves** each area file to `diagnosis/findings/<area>.md`, using the method in `references/team.md` → "Saving hand-backs". Hand-backs are saved, not shown to the user. Inspectors leave the working tree exactly as they found it: check `git status` before and after.
 
@@ -317,5 +317,5 @@ Follow `references/self-improvement.md`.
 - `references/walkthrough.md`: Agree / Discuss, then "Let's begin!".
 - `${CLAUDE_PLUGIN_ROOT}/shared/appinsights-queries.kql`: aggregate, PII-masked telemetry queries.
 - `checks/*.md`: the check catalogue per area: `code.md`, `forms.md`, `operations.md`, `orm-shesha.md`, `safety-nets.md`, `security.md`, `sql.md`.
-- `sql/diagnostic-queries.sql`: SQL Server checks. Run with `sqlcmd -i`.
+- `shesha-sql-review`: SQL Server checks. Run with `sqlcmd -i`.
 - `${CLAUDE_PLUGIN_ROOT}/shared/templates/report.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/finding.md`, `${CLAUDE_PLUGIN_ROOT}/shared/templates/shesha-team-report.md`.
