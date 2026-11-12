@@ -36,7 +36,7 @@ All capability-gated NOT-ASSESSED records are **MANDATORY fixed anchors** — ev
 | `RC-transaction-boundary` | ORM-F |
 | `RC-name-based-lookup` | ORM-G |
 | `RC-tracking-session` | ORM-J |
-`fix_order_rank` is a pure function of `{severity, root_cause, anchor}` (operating-standard §6) — never hand-sequenced, so it matches across runs. ORM-E findings handed to Security carry the Security `root_cause` (`RC-no-authz-model`) in the SEC-C record; the ORM-side custom-base record keeps `RC-generic-crud-exposure`.
+`fix_order_rank` is a pure function of `{severity, root_cause, anchor}` (operating-standard §6) — never hand-sequenced, so it matches across runs. ORM-E findings handed to Security carry the Security `root_cause` (`RC-sec-no-authz`) in the SEC-C record; the ORM-side custom-base record keeps `RC-generic-crud-exposure`.
 
 **Fixed severity-inputs per check (impact_class + data_sensitivity are FIXED properties of the check; reachability resolves from the call-site rule below).** Author these exactly so two operators compute the same band.
 | Check (sub-predicate) | impact_class | data_sensitivity | typical reachability → band |

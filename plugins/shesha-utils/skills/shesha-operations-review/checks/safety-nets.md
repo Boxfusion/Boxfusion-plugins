@@ -20,9 +20,9 @@ These are the tools that catch mistakes before users do — tests, CI, dependenc
 ## Determinism pins (apply exactly)
 - **The capability-gated NOT-ASSESSED anchors are MANDATORY fixed strings — every operator emits every applicable one, always:** `SN-VULN@scanner:nuget`, `SN-VULN@scanner:npm`, `SN-VULN@scanner:nuget:modules`, `SN-SCAN@scanner:gitleaks`. Fixed so two runs' NOT-ASSESSED sets match exactly (operating-standard §8). Info/NOT-ASSESSED records never enter fix-order (§6).
 - **SN-VULN severity is the advisory band the tool reports, not the §5 grid.** The GHSA/NVD database already encodes impact × exploitability, so the finding's severity = the **max advisory band present** in the tool output: `critical→Critical, high→High, moderate→Medium, low→Low`. One `SN-VULN` finding per ecosystem/front-end (`SN-VULN@dep:npm:<app>`, `SN-VULN@dep:nuget:<scope>`), body carrying the count-by-band and the direct-vs-transitive split — not one finding per CVE (that set drifts as the advisory DB updates between runs; the band + counts at the pinned commit is the stable artefact). impact_class is recorded as `advisory-reported`.
-- **SN-SECRETS and SN-DBDUMP delegate to SEC-E.** Committed secrets and committed DB dumps are SEC-E's findings (`SEC-E@<path>`), with SEC-E's `RC-committed-secrets` root_cause and severity. Safety-nets runs the **detection scan** and emits the SEC-E-shaped anchor, but does not create a second competing record — overlap priority: SEC-E owns the committed-secret/dump severity. SN keeps the **CI-control** gap (no gitleaks step, no push-protection) as its own `SN-SCAN` finding.
+- **SN-SECRETS and SN-DBDUMP delegate to SEC-E.** Committed secrets and committed DB dumps are SEC-E's findings (`SEC-E@<path>`), with SEC-E's `RC-sec-committed-secret` root_cause and severity. Safety-nets runs the **detection scan** and emits the SEC-E-shaped anchor, but does not create a second competing record — overlap priority: SEC-E owns the committed-secret/dump severity. SN keeps the **CI-control** gap (no gitleaks step, no push-protection) as its own `SN-SCAN` finding.
 - **SN-DBDUMP uses the working-tree scan AND `git ls-files` — never `git ls-files` alone.** On a fresh/zero-commit repo nothing is tracked yet, so `git ls-files` is empty and a dump in the root is missed; the working-tree `find`/`ls` catches it. History dimension → `NOT-ASSESSED(zero-commit-repo)` when there are no commits.
-- **root_cause is an enumerated `RC-ops-*` id** (this file's table; must be merged into operating-standard §3), except the SEC-E-delegated rows which carry `RC-committed-secrets`. `fix_order_rank` = f({severity, root_cause, anchor}).
+- **root_cause is an enumerated `RC-ops-*` id** (this file's table; must be merged into operating-standard §3), except the SEC-E-delegated rows which carry `RC-sec-committed-secret`. `fix_order_rank` = f({severity, root_cause, anchor}).
 
 ## Fixed severity-inputs per row (operating-standard §5 — impact_class + data_sensitivity FIXED; reachability from the manifest). Most safety-net gaps are process/maintainability defects at `local_only`.
 | Row (id) | impact_class | data_sensitivity | typical reachability → band |
@@ -40,9 +40,9 @@ These are the tools that catch mistakes before users do — tests, CI, dependenc
 | SN-LOCK (lock files) | maintainability | none | local_only → Low |
 | SN-MIGRATE (clean-build migrations) | maintainability | none | local_only → Low |
 | SN-SCAN (no CI scanner step) | maintainability | none | local_only → Low |
-| SN-SECRETS / SN-DBDUMP | → **SEC-E** (RC-committed-secrets, SEC-E severity) |
+| SN-SECRETS / SN-DBDUMP | → **SEC-E** (RC-sec-committed-secret, SEC-E severity) |
 
-`root_cause` map: SN-TEST/E2E/LINT/CI/REVIEW/AUTHINV/SN-SCAN(control) → `RC-ops-ci-gate`; SN-VULN/STALE/FWK/LOCK → `RC-ops-dependency-hygiene`; SN-MIGRATE → `RC-ops-build-reproducibility`; SN-SECRETS/SN-DBDUMP → `RC-committed-secrets` (delegated to SEC-E).
+`root_cause` map: SN-TEST/E2E/LINT/CI/REVIEW/AUTHINV/SN-SCAN(control) → `RC-ops-ci-gate`; SN-VULN/STALE/FWK/LOCK → `RC-ops-dependency-hygiene`; SN-MIGRATE → `RC-ops-build-reproducibility`; SN-SECRETS/SN-DBDUMP → `RC-sec-committed-secret` (delegated to SEC-E).
 
 ---
 
@@ -138,18 +138,18 @@ These are the tools that catch mistakes before users do — tests, CI, dependenc
 
 ## SN-SCAN: Secret scanning (run it now, and gate PRs). **impact_class=maintainability (CI-control) / delegates to SEC-E (findings), RC-ops-ci-gate.**
 - **INPUT:** run **gitleaks** over the working tree (`gitleaks detect --source . --no-git`) AND git history (`gitleaks detect --source .`); check the PR pipeline for a scanner step (gitleaks/trufflehog) + GitHub push protection.
-- **PREDICATE:** (a) gitleaks reports a finding → the secret itself is a **SEC-E** finding (`SEC-E@<path>`, RC-committed-secrets); (b) **gitleaks is absent → the fixed `SN-SCAN@scanner:gitleaks` `NOT-ASSESSED(no-gitleaks)` record** (the SEC-E seam-grep stands as a CODE-ONLY spot-check, never "clean"); (c) no scanner step / no push-protection in the pipeline → `SN-SCAN@ci:secret-scan:absent` (this file's own CI-control finding).
+- **PREDICATE:** (a) gitleaks reports a finding → the secret itself is a **SEC-E** finding (`SEC-E@<path>`, RC-sec-committed-secret); (b) **gitleaks is absent → the fixed `SN-SCAN@scanner:gitleaks` `NOT-ASSESSED(no-gitleaks)` record** (the SEC-E seam-grep stands as a CODE-ONLY spot-check, never "clean"); (c) no scanner step / no push-protection in the pipeline → `SN-SCAN@ci:secret-scan:absent` (this file's own CI-control finding).
 - **VERDICT/ANCHOR:** `SN-SCAN@scanner:gitleaks` (NOT-ASSESSED when absent) + `SN-SCAN@ci:secret-scan:absent` (control gap); actual secrets → SEC-E.
 - **EVIDENCE:** gitleaks ran → VERIFIED-ARTEFACT; absent → NOT-ASSESSED(no-gitleaks); pipeline read → VERIFIED-ARTEFACT.
 - **REMEDIATION `PLAN-SN-SCAN`:** add a gitleaks PR step + full-history scan + GitHub push-protection (a real scanner — 180+ provider patterns, history coverage — beats a grep).
 - **REGRESSION TEST:** `SecretScan_GitleaksCleanTreeAndHistory_CI` (shared with SEC-E).
 - **SEVERITY:** CI-control gap maintainability × local_only → **Low**; NOT-ASSESSED(no-gitleaks) → Info; committed-secret severity → SEC-E.
 
-## SN-SECRETS: Secrets not in the repo. **→ the security division SEC-E (RC-committed-secrets).**
+## SN-SECRETS: Secrets not in the repo. **→ the security division SEC-E (RC-sec-committed-secret).**
 - **INPUT/PREDICATE/ANCHOR:** detection is SEC-E's (seam grep + gitleaks over `appsettings*.json`, module `.WithDefaultValue(` literals, CI/compose/helm, `NEXT_PUBLIC_*`). A committed JWT signing key, shared QA credentials, etc. are `SEC-E@<path>` findings. Safety-nets runs the scan and surfaces them under SEC-E — no competing SN record.
 - **SEVERITY:** per SEC-E.
 
-## SN-DBDUMP: No committed database dump. **→ the security division SEC-E (SEC-E owns committed dumps, RC-committed-secrets).**
+## SN-DBDUMP: No committed database dump. **→ the security division SEC-E (SEC-E owns committed dumps, RC-sec-committed-secret).**
 - **INPUT:** scan the **working tree** (`find`/`ls` for `*.bacpac` / `*.bak` / `*.backup` / `*.dump`) **AND** `git ls-files` for the same patterns. Use both — on a zero-commit repo `git ls-files` is empty and a dump in the root is missed by it alone.
 - **PREDICATE:** a DB dump exists in the working tree or is tracked → a `SEC-E@<repo-relative-path>` finding (no suffix, per SEC-E's R8 pin, e.g. `SEC-E@hcm.bacpac`). Two DBMS dumps signal ad-hoc seeding. History dimension → `NOT-ASSESSED(zero-commit-repo)` when no commits.
 - **VERDICT/ANCHOR:** `SEC-E@<path>` (SEC-E record); SN surfaces it, does not duplicate it.

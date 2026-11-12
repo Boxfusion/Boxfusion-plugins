@@ -4,11 +4,11 @@
 A literal value in a tracked `appsettings*.json` lets anyone who can read the repository mint
 valid tokens for any user in any environment that shares the key (framework #4250). Worse, a
 value left at the template default is identical across every Shesha/ABP system built from that
-template, so one leak forges tokens everywhere (registry SEC-P). The key is also too weak if it
+template, so one leak forges tokens everywhere (registry SEC-T). The key is also too weak if it
 is shorter than 32 bytes / low-entropy (registry I2).
 
 This check is the FIX owner for the shared CHECK-IDs B1 (committed literal) and references I2
-(short key) and SEC-P (starter-key fingerprint). Secret material is NEVER echoed: the report
+(short key) and SEC-T (starter-key fingerprint). Secret material is NEVER echoed: the report
 cites presence, length and a sha256:<12> fingerprint only, and the fix diff is redacted.
 """
 from __future__ import annotations
@@ -63,9 +63,9 @@ class JwtSigningKey(Check):
     title = "JWT signing key is supplied per environment, not committed"
     severity = "high"
     doc = "references/checks.md section 5"
-    # shared determinism contract (check-registry.md B1; references I2 short-key and SEC-P fingerprint)
+    # shared determinism contract (check-registry.md B1; references I2 short-key and SEC-T fingerprint)
     canonical_id = "B1"
-    canonical_refs = ["I2", "SEC-P"]
+    canonical_refs = ["I2", "SEC-T"]
     impact_class = "auth_bypass"
     reachability = "anonymous"
     data_sensitivity = "none"
@@ -99,7 +99,7 @@ class JwtSigningKey(Check):
                     Status.FAIL, f"SecurityKey is committed AND identical to a known starter key "
                     f"({starter}) - forgeable across every system built from that template "
                     f"[{fp['sha256_12']}, {fp['length']} bytes]", repo.rel(path), fixable=True,
-                    anchor=anchor, evidence=Evidence.VERIFIED_ARTEFACT, canonical_id="SEC-P"))
+                    anchor=anchor, evidence=Evidence.VERIFIED_ARTEFACT, canonical_id="SEC-T"))
                 continue
             weak = "" if fp["length"] >= MIN_BYTES else f" and is only {fp['length']} bytes (< {MIN_BYTES}; weak, ref I2)"
             issues.append(Issue(

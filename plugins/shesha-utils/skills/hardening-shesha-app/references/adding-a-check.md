@@ -135,5 +135,5 @@ These are findings from Shesha security audits that are fixable at application l
 | `generate-app-service` | entities that must never have CRUD APIs lack `GenerateApplicationServiceState.DisableGenerateApplicationService` | registry D3 |
 | `per-user-lockout` | existing users with `IsLockoutEnabled = false` | live; follow-on to `user-lockout` |
 
-Implemented since: `jwt-signing-key` (section 5, registry B1/I2/SEC-P) and `cors-origins`
+Implemented since: `jwt-signing-key` (section 5, registry B1/I2/SEC-T) and `cors-origins`
 (section 6, registry A2/A3/B3).

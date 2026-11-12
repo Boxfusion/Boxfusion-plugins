@@ -145,7 +145,7 @@ REPRODUCED / NOT-ASSESSED) separate from status, and a **severity scored** from
 `{impact_class, reachability, data_sensitivity}` (the flat `severity` is kept only as a display
 alias). Where this skill's checks overlap the audit's, they reuse the **canonical** CHECK-IDs so the
 same issue is not double-identified: `token-lifetime`→I3, `token-blacklist`→I4, `user-lockout`→J2,
-`hangfire-dashboard`→A10, `jwt-signing-key`→B1 (refs I2/SEC-P), `cors-origins`→A2/A3/B3. Hardening
+`hangfire-dashboard`→A10, `jwt-signing-key`→B1 (refs I2/SEC-T), `cors-origins`→A2/A3/B3. Hardening
 remains the **fix owner** for these. MANUAL/undecidable cases are labelled `non_deterministic` and
 dropped from the acceptance diff. `findings.json` keeps all volatile data (repo path, commit, run
 time, mode) in a non-diffed `runMeta` block and a `capabilities` manifest; a capability that is

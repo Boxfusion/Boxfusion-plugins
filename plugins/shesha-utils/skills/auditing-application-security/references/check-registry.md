@@ -81,7 +81,7 @@
 
 *D5 **derives High** (data_exposure_pii × any_authenticated): a solution with **no** global specification anywhere has no row-level security at all — any authenticated user can read any row. The per-entity "this PII entity lacks a spec" is the same defect at entity granularity (H5, also High). The scoring table governs; an earlier draft said Medium and is superseded (resolves the baseline-vs-code severity flag from the harness worker).*
 
-**root_cause registrations** (determinism-standard §6): `RC-sec-bola` (SEC-A, H1–H4), `RC-sec-pii-logging` (SEC-H), `RC-sec-cors`, `RC-sec-headers`, `RC-sec-committed-secret`, `RC-sec-no-authz`, `RC-sec-no-rowfilter`, `RC-sec-token`, `RC-sec-weak-auth`, `RC-sec-dos`, `RC-sec-starter-surface`, `RC-sec-rt-trust`, `RC-sec-config`, `RC-sec-deps`, `RC-sec-authz-filter`, `RC-sec-orphaned-permission` (SEC-U), `RC-sec-upgrade-drift` (SEC-DRIFT, SEC-RESET, SEC-GONE) — the closed `RC-sec-*` set.
+**root_cause registrations** (determinism-standard §6): `RC-sec-bola` (SEC-A, H1–H4), `RC-sec-pii-logging` (SEC-H), `RC-sec-cors`, `RC-sec-headers`, `RC-sec-committed-secret`, `RC-sec-no-authz`, `RC-sec-no-rowfilter`, `RC-sec-token`, `RC-sec-weak-auth`, `RC-sec-dos`, `RC-sec-starter-surface`, `RC-sec-rt-trust`, `RC-sec-config`, `RC-sec-deps`, `RC-sec-authz-filter`, `RC-sec-orphaned-permission` (SEC-U), `RC-sec-upgrade-drift` (SEC-DRIFT, SEC-RESET, SEC-GONE), `RC-sec-anon-settings` (SEC-I), `RC-sec-input-integrity` (SEC-L, SEC-M, SEC-V, SEC-G, SEC-N) — the closed `RC-sec-*` set.
 
 ---
 
@@ -126,7 +126,7 @@
 | I4 | SignOff does not invalidate token | auth_bypass | any_authenticated | none | `http:POST /api/TokenAuth/SignOff` | **ND** (probe) | RC-sec-token |
 | I5 | No refresh-token rotation | auth_bypass | any_authenticated | none | `sln:refresh-rotation=absent` | **ND** | RC-sec-token |
 
-*I2 cross-refs `hardening-shesha-app` (the fix) and the **starter-key fingerprint** check (SEC-P) — one canonical id.*
+*I2 cross-refs `hardening-shesha-app` (the fix) and the **starter-key fingerprint** check (SEC-T, formerly SEC-P here) — one canonical id.*
 
 ---
 
@@ -158,16 +158,24 @@
 | SEC-A | Client/route id trusted as identity (BOLA, static) | auth_bypass | any_authenticated | pii_basic | **Roslyn** (DET via analyzer) | auditing detect → access-control fix |
 | SEC-H | POPIA personal data in a log call | data_exposure_pii | admin_only | popia_special | **Roslyn** (DET via analyzer) | auditing |
 | SEC-U | Orphaned / unused permission (granted to no role, or required by no endpoint) | maintainability | local_only | none | DET | auditing detect → access-control fix |
-| SEC-K | Workflow self-approval / wrong-actor | auth_bypass | any_authenticated | business | **ND** (probe + semantic) | access-control |
-| SEC-L | Property-level authz / over-posting | data_integrity | any_authenticated | business | **ND** | access-control |
-| SEC-M | Mass-import endpoint unguarded | auth_bypass | any_authenticated | business | DET (catalogue) | auditing |
+| SEC-B | Single-record endpoint without the list's scope (IDOR), incl. StoredFile download; PII entity `GetAll` with no global specification | data_exposure_pii | any_authenticated | pii_basic | CODE-ONLY static + **ND** (two-principal probe) | auditing detect → access-control fix |
+| SEC-C | Default permissions / "any authenticated": `DefaultEndpointAccess`, authorize ratio, open sensitive-entity CRUD, configuration-tamper endpoints | auth_bypass | any_authenticated | popia_special | DET (ratio grep) + **ND** (live default) | auditing detect → access-control fix |
+| SEC-D | Anonymous endpoints and developer surfaces (Elmah, Swagger, Playground, Hangfire) not on the allow-list | info_leak | anonymous | none | DET (registration) + **ND** (probe) | auditing detect → hardening fix |
+| SEC-E | Secrets in the working tree or history (gitleaks + seam grep), committed dumps, shared test credentials | data_exposure_pii (secret_exposure) | any_authenticated | none | DET (seam grep) + **ND** (history scan) | auditing detect → hardening fix |
+| SEC-I | Settings endpoints: anonymous `Settings/GetValue` returning secret settings (run first; urgent stop) | data_exposure_pii (secret_exposure) | anonymous | none | VERIFIED-ARTEFACT (decompile) + **ND** (probe) | auditing |
+| SEC-K | Business-flow security: status-write, client-chosen route, literal guard, HTTP-GET mutation, test endpoint, TOCTOU (each its own finding) | auth_bypass | any_authenticated | business | **ND** (probe + semantic) | access-control |
+| SEC-L | Mass assignment / over-posting of protected fields | data_integrity | any_authenticated | business | DET (AutoMapper grep) | access-control |
+| SEC-M | Unrestricted file upload and import parsing (M1–M5: allow-list, size, filename, web root, zip-slip / XXE / decompression bomb) | data_integrity | any_authenticated | none | DET (static) | auditing |
+| SEC-V *(was SEC-M here)* | Mass-import endpoint unguarded | auth_bypass | any_authenticated | business | DET (catalogue) | auditing |
 | SEC-F | SignalR / real-time hub without auth or with client-chosen groups | data_exposure_pii | anonymous | pii_basic | DET (static) + **ND** (connect probe) | auditing |
 | SEC-G | Injection & unsafe input (XSS / XXE / deserialization / open-redirect / HQLi / CSV), per-vector | data_exposure_pii | any_authenticated | pii_basic | DET (per-vector static) | auditing |
 | SEC-J | Message consumer trusts message content as input (EasyNetQ / MassTransit) | data_integrity | any_authenticated | business | DET (static) | auditing |
 | SEC-N | SSRF — outbound target from request / entity / user-editable setting, no allow-list or private-range block | info_leak | any_authenticated | none | DET (static) + **ND** (probe) | auditing |
-| SEC-O | *(covered — folds into A1–A3/B3)* | — | — | — | — | — |
-| SEC-P | Starter JWT key identical across Shesha systems (forgeable) | auth_bypass | anonymous | none | DET (fingerprint list) | auditing detect → hardening fix |
-| SEC-R | Background-job / consumer trusts caller | auth_bypass | any_authenticated | business | **ND** (probe) | auditing |
+| SEC-O | Security headers, CSP, HSTS, CORS, CSRF, cookie flags, production source maps (O1–O7; static rows A1–A3, A6–A8, B3) | info_leak (O2: auth_bypass) | anonymous | none | DET (static) + **ND** (header probe) | auditing detect → hardening fix |
+| SEC-P | JWT validation settings: issuer, audience, lifetime, algorithms, rotation, revocation (static rows I1, I3–I5) | auth_bypass | anonymous | none | DET (static) + **ND** (`--deep` forge) | auditing detect → hardening fix |
+| SEC-Q | GraphQL data plane bypasses authorisation (no per-field auth, introspection, no depth limit) | auth_bypass | anonymous | none | DET (static) + **ND** (query probe) | auditing |
+| SEC-R | Background-job trust: trigger endpoint without a named permission; Hangfire `TypeNameHandling != None` | data_integrity | any_authenticated | business | DET (static) + **ND** (probe) | auditing |
+| SEC-T *(was SEC-P here)* | Starter JWT key identical across Shesha systems (forgeable) | auth_bypass | anonymous | none | DET (fingerprint list) | auditing detect → hardening fix |
 | SEC-S | Tenant isolation absent | data_exposure_pii | any_authenticated | popia_special | **ND** | access-control |
 | INV-CHK | Inverse permission-checker (`default: return false` voids all grants) | auth_bypass | any_authenticated | business | DET (grep) + ND (grants-have-effect probe) | auditing detect → access-control fix |
 | SEC-FW | Framework / ABP / Enterprise entity reachable through generic dynamic CRUD (or the generic `Entities` gateway) signed out or as a low-privilege user | data_exposure_pii | anonymous \| low_priv | pii_basic | **ND** (probe: `framework-entity-crud` sweep; DET once the entity-action records are captured) | auditing detect → access-control fix |
@@ -188,7 +196,11 @@ branch the audit did not cover is recorded in `_index.json` `inputsMissing` and 
 `NOT-ASSESSED(branch-not-audited)` with the branch name. It is never scored and never silently
 dropped (`reaudit-and-upgrade-drift.md` section 1).
 
-**Full detection specs for SEC-F, SEC-G, SEC-J and SEC-N:** `references/security-checks.md` (INPUT / PREDICATE / ANCHOR / EVIDENCE / REMEDIATION / REGRESSION / SEVERITY per check). These were the detection gaps left when the TLC security hardening was flowed back into this skill.
+**Full detection specs:** `references/security-checks.md` (INPUT / PREDICATE / ANCHOR / EVIDENCE / REMEDIATION / REGRESSION / SEVERITY per check) for SEC-B, C, D, E, F, G, I, J, K, L, M, N, O, P, Q, R and S, with the `PLAN-SEC-*` templates and named regression tests. SEC-A and SEC-H: the Roslyn analyzer. SEC-FW, ESC, DRIFT, RESET, GONE: `reaudit-and-upgrade-drift.md`.
+
+**One ID scheme.** The SEC letters keep the TLC meanings the conductor, `shared/operating-standard.md` and the inspector briefs use. Two registry rows that clashed were renumbered: starter JWT key fingerprint **SEC-P → SEC-T**; mass-import endpoint unguarded **SEC-M → SEC-V**. A SEC check is an umbrella; when a fine-grained registry row (A–K) fits, the finding takes that id (map in `security-checks.md`, "Catch-up").
+
+**Root causes for the restored checks:** SEC-B `RC-sec-bola`; SEC-C, SEC-Q `RC-sec-no-authz`; SEC-D `RC-sec-starter-surface`; SEC-E, SEC-T `RC-sec-committed-secret`; SEC-I `RC-sec-anon-settings`; SEC-K, SEC-R `RC-sec-rt-trust`; SEC-L, SEC-M, SEC-V `RC-sec-input-integrity`; SEC-O `RC-sec-headers` / `RC-sec-cors`; SEC-P `RC-sec-token`; SEC-S `RC-sec-no-rowfilter`.
 
 ---
 
@@ -198,3 +210,4 @@ dropped (`reaudit-and-upgrade-drift.md` section 1).
 2. **Severity-mismatch fixes:** A3 **Critical** only as wildcard+credentials (A2+A3); D5 solution-wide **Medium** tally vs the per-entity **H5 High**; J3 **High**.
 3. **DET vs ND split:** only the ~18 DET checks enter the byte-identity acceptance diff now; the ND ones carry `non_deterministic:true` until the Roslyn analyzer (SEC_A/H, C5) and probe-result normalization land. This is honest, not a downgrade.
 4. **SEC-N is now defined** (SSRF) and added, alongside the other previously-missing detection checks **SEC-F** (SignalR), **SEC-G** (injection) and **SEC-J** (message-consumer input surface) — full specs in `references/security-checks.md`. This closes the detection gaps found by comparing the standalone skill against TLC's `checks/security.md`.
+5. **One SEC ID scheme (catch-up from the 3 Nov modularisation).** The SEC letters keep the TLC meanings (conductor, operating standard, briefs). Registry rows that clashed were renumbered: starter JWT key **SEC-P → SEC-T**, mass import **SEC-M → SEC-V**. SEC-O is no longer "covered": it is the umbrella for O1–O7 with A1–A3/A6–A8/B3 as its static rows. Two root causes were added to the closed set: `RC-sec-anon-settings`, `RC-sec-input-integrity`.
