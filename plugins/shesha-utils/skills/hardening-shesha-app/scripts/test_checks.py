@@ -559,7 +559,7 @@ class JwtSigningKeyTests(RepoCase):
         self.assertEqual(before.status, Status.FAIL)
         self.assertTrue(any("starter key" in i.message for i in before.issues))
         rows = before.shared_findings(REGISTRY["jwt-signing-key"]())
-        self.assertEqual(rows[0]["check_id"], "SEC-P")                 # per-issue canonical id override
+        self.assertEqual(rows[0]["check_id"], "SEC-T")                 # per-issue canonical id override
         self.assertEqual(rows[0]["evidence_level"], "VERIFIED-ARTEFACT")
 
     def test_short_key_notes_weakness(self):

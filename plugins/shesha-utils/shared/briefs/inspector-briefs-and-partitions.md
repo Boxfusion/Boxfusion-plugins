@@ -27,7 +27,7 @@ CAPABILITY MANIFEST (authoritative — do NOT re-detect, do NOT install anything
   verdict, never a silent pass, never "fine", never a guess, never a weaker instrument kept at a
   strong level. gitleaks absent => SEC-E recall NOT-ASSESSED(no-secret-scanner), seam-grep = CODE-ONLY.
   No low-priv account => authenticated dimension of SEC-A/B/C/K/L/M/N NOT-ASSESSED(no-low-priv-user);
-  anonymous/static stands alone. (See checks/security.md capability-gating table.)
+  anonymous/static stands alone. (See auditing-application-security references/security-checks.md, capability-gating table.)
   SEC-ESC needs per-role synthetic logins on a restorable copy => else NOT-ASSESSED(no-per-role-logins).
   SEC-DRIFT/SEC-RESET need two live captures (old/new build, first start/restart) => else
   NOT-ASSESSED(no-before-capture). A module only on a branch not under review =>
@@ -44,7 +44,7 @@ OUTPUT CONTRACT (every finding; operating-standard §§2-6,8):
   4. severity SCORED from operating-standard §5 (intrinsic; evidence is NOT an input). Print the
      three inputs: impact_class={} reachability={} data_sensitivity={} => BAND. Score against the
      manifest severity_target, never the copy's data volume. Never raise severity for sequencing.
-  5. remediation = the check's templated plan_id (checks/security.md), instantiated with your anchor
+  5. remediation = the check's templated plan_id (auditing-application-security references/security-checks.md), instantiated with your anchor
      — not free prose. Name the regression test exactly as the check names it.
   6. CANONICAL ORDER: emit sorted by severity band DESC, then check_id ASC, then anchor ASC.
   7. PARTIAL INPUTS => NOT-ASSESSED(reason). Never guess, never infer a value you did not read.
@@ -68,8 +68,8 @@ Keep BA questions and PM concerns separate from findings.
 ### Orchestration rules (fixed, not judgement)
 - **Fixed sub-area partition** (a team split and a single-operator run merge byte-identically):
   - access-control = SEC-A, SEC-B, SEC-C, SEC-K, SEC-P (JWT-trust), SEC-Q (GraphQL data-plane), SEC-S (tenant isolation), SEC-FW (framework entities via generic CRUD), SEC-ESC (admin takeover), SEC-DRIFT / SEC-RESET (upgrade drift, start-up reset), SEC-GONE (forms calling removed endpoints) (+ consumed handovers CODE-G-1, CODE-F-1/2, CODE-G-3)
-  - secrets & config = SEC-E, SEC-I, SEC-O, SEC-D
-  - input & data = SEC-G, SEC-L, SEC-M, SEC-N, SEC-H
+  - secrets & config = SEC-E, SEC-I, SEC-O, SEC-D, SEC-T (starter JWT key fingerprint)
+  - input & data = SEC-G, SEC-L, SEC-M (file upload), SEC-V (mass import), SEC-N, SEC-H
   - real-time & messaging = SEC-F, SEC-J, SEC-R (background-job trust)
   Only `{check-ids}` differs between team members. SEC-K stays whole in access-control and consumes its fixed handover list; if a handover-source sub-area didn't run, SEC-K records `NOT-ASSESSED(handover-source-not-run)` for that trace — never guesses it.
 - **Overlap resolution (fixed priority, first match wins):** property-authorisation → SEC-L; business-flow/workflow → SEC-K; endpoint authz → SEC-C/B/A; secret → SEC-E/I. The losing check emits a one-line handover referencing the winner's `finding_id`, never a duplicate.
@@ -79,7 +79,7 @@ Keep BA questions and PM concerns separate from findings.
 
 ## All divisions — deterministic briefing & team-split (generalises the security model)
 
-Every division is now acceptance-proven deterministic the same way security is: two independent operators on the same commit + manifest produce byte-identical `findings.json` (frozen references in `harness/<area>-PASS-*.json`). A team can split **any** division across members, or one person can run the whole division, and the merged result is identical. This section is the generic counterpart to the security briefing above — use it for `--area code|orm|sql|operations|forms` (and for splitting those areas across a team).
+Every division is now acceptance-proven deterministic the same way security is: two independent operators on the same commit + manifest produce byte-identical `findings.json` (frozen references `harness/<area>-PASS-*.json` are **to be created**: none ship yet, so until they do the acceptance gate is two fresh operators with an empty diff). A team can split **any** division across members, or one person can run the whole division, and the merged result is identical. This section is the generic counterpart to the security briefing above — use it for `--area code|orm|sql|operations|forms` (and for splitting those areas across a team).
 
 ### The canonical division inspector brief (fill only the placeholders)
 Identical in spirit to the security brief; the orchestrator fills `{area}`, `{check-file}`, `{check-ids}`, `{repo-commit}`, `{tree-state}`, `{manifest}`. The output contract, anchor rules, evidence enum, scored severity, canonical order, and data-safety clauses are **verbatim the same** as the security brief above — a division operator differs only in (a) which `checks/<area>.md` is its sole authority, (b) its check-id set, and (c) its area tag on each record. Non-negotiable additions that the overnight hardening proved necessary:
@@ -131,4 +131,4 @@ Only `{check-ids}` differs between team members; every other brief field is shar
   - DB-gated (→ NOT-ASSESSED(no-db-copy) static) = FORM-A, FORM-B, FORM-C, FORM-E, FORM-G
 
 ### Orchestration rules (same as security)
-Overlap resolution, duplicate-collapse-by-id, persist-`findings.json`-then-derive-markdown, and the two-operator acceptance diff are identical to the security section above. Each division's frozen PASS reference (`harness/<area>-PASS-{A,B}.json`) is the regression baseline: a check-file edit that changes a division's output must be re-accepted (two fresh operators, empty diff) before it ships.
+Overlap resolution, duplicate-collapse-by-id, persist-`findings.json`-then-derive-markdown, and the two-operator acceptance diff are identical to the security section above. Each division's frozen PASS reference (`harness/<area>-PASS-{A,B}.json`, to be created; none ship yet) will be the regression baseline. Until then: a check-file edit that changes a division's output must be re-accepted (two fresh operators, empty diff) before it ships.

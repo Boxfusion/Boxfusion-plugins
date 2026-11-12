@@ -14,6 +14,18 @@ assembly names changed: `BoxfusionTlc.SecAnalyzers` → **`Boxfusion.SecAnalyzer
 `BoxfusionTlc.SecDriver` → **`Boxfusion.SecDriver`**. The Roslyn `DiagnosticId`s stay
 `SEC_A` / `SEC_H` (the driver maps `_`→`-` to the registry check id).
 
+## Why an analyzer, not a grep
+
+- **SEC-A needs dataflow.** The question is whether a client-supplied `Guid …Id` reaches a
+  read or scope decision **without** being re-derived from the session. A one-line grep cannot
+  match `Task<…>` and nested generics or PascalCase-vs-camelCase parameter names, so operators
+  fell back to reading signatures by eye and picked different methods.
+- **SEC-H needs the receiver's type.** `person.FullName` is personal data; `someType.FullName`
+  (`System.Type.FullName`, reflection) is not. A text exclusion missed longer identifiers, and
+  the `rg | rg -v` pipe ran inconsistently: operators got 0, 10 and 14 sites for the "same"
+  command, and half of one system's raw hits were reflection decoys inside exception messages.
+  Only the semantic model separates them reproducibly.
+
 ## Layout
 - `src/Boxfusion.SecAnalyzers/` — netstandard2.0 `Microsoft.CodeAnalysis.CSharp` analyzer
   library with two `DiagnosticAnalyzer`s (`SEC_A`, `SEC_H`) + `AnchorHelper` / `Predicates`.
@@ -88,9 +100,9 @@ resolved here and flagged:
 2. **root_cause vocabulary** — determinism-standard §6 requires an enumerated `RC-sec-*` id
    registered in the check registry. SEC-A → `RC-sec-bola` (§7 names SEC_A a BOLA check;
    `RC-sec-bola` is already registered in the H section). SEC-H → `RC-sec-pii-logging`
-   (**proposed** — the registry has no registered RC for PII-in-logs yet; register it, or
-   rename here to the registry's choice). The TLC source used the non-registry ids
-   `RC-no-authz-model` / `RC-pii-handling`.
+   (registered in the check registry §6). The TLC source used the older ids
+   `RC-no-authz-model` / `RC-pii-handling`; `shared/operating-standard.md` now uses the
+   `RC-sec-*` names too.
 
 These are value-only choices; they do not affect two-run byte-identity.
 

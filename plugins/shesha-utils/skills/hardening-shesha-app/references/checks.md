@@ -200,10 +200,10 @@ with. A literal value committed to a tracked `appsettings*.json` lets anyone who
 repository mint valid tokens for any user in any environment that shares the key (framework
 #4250). A value left at a template default is worse: it is identical across every Shesha/ABP
 system generated from that template, so one leak forges tokens everywhere (shared registry
-SEC-P). A key shorter than 32 bytes is also cryptographically weak (registry I2).
+SEC-T). A key shorter than 32 bytes is also cryptographically weak (registry I2).
 
 This check is the application-side **fix owner** for the shared CHECK-ID **B1** and references
-**I2** and **SEC-P**; the audit skill detects the same issue under those ids. Secret material is
+**I2** and **SEC-T**; the audit skill detects the same issue under those ids. Secret material is
 never shown: the report cites presence, length and a `sha256:<12>` fingerprint only, and the fix
 diff is redacted (determinism-standard §10).
 
@@ -212,7 +212,7 @@ diff is redacted (determinism-standard §10).
 | Shape | Result |
 |---|---|
 | Empty, or a reference (`$(...)`, `${...}`, `#{...}`) | PASS - already supplied per environment |
-| A literal whose `sha256:<12>` is in the known-starter-key list (`scripts/checks/known_jwt_key_fingerprints.json`) | FAIL, evidence VERIFIED-ARTEFACT (forgeable across systems, id SEC-P) |
+| A literal whose `sha256:<12>` is in the known-starter-key list (`scripts/checks/known_jwt_key_fingerprints.json`) | FAIL, evidence VERIFIED-ARTEFACT (forgeable across systems, id SEC-T) |
 | Any other literal | FAIL, evidence CODE-ONLY (id B1); the message notes if it is also < 32 bytes (weak, I2) |
 
 **Automatic fix.** The committed value is **blanked** (`"SecurityKey": ""`), keeping the key
@@ -334,7 +334,7 @@ mitigation applied in the meantime:
   app-level filter that trusts an unvalidated token. The real fix is the framework's
   `UseSheshaHangfireDashboard()` (#5554); until a version ships it, the app can only avoid mapping
   the dashboard in production.
-- **Starter `SecurityKey`** (`jwt-signing-key`, SEC-P): a template default key shared across
+- **Starter `SecurityKey`** (`jwt-signing-key`, SEC-T): a template default key shared across
   systems (#4250). The app rotates to its own secret; the Shesha team should ship templates with no
   committed key.
 - **Token blacklist wiring** (`token-blacklist`, I4): older starter templates do not wire

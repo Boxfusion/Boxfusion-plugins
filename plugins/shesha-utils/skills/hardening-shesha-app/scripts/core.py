@@ -267,7 +267,7 @@ class Check:
     # ---- shared determinism contract (check-registry.md). The canonical_id is the SHARED
     # CHECK-ID this fix owns, so the same issue carries one id across the three skills.
     canonical_id: str = ""               # e.g. "I3"; defaults to `id` if blank
-    canonical_refs: list[str] = []       # other registry ids this maps to (e.g. ["I2", "SEC-P"])
+    canonical_refs: list[str] = []       # other registry ids this maps to (e.g. ["I2", "SEC-T"])
     impact_class: str = "maintainability"    # §4 input
     reachability: str = "any_authenticated"  # §4 input
     data_sensitivity: str = "none"           # §4 input
