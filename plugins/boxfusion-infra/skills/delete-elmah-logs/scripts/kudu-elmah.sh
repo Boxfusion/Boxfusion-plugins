@@ -11,6 +11,7 @@
 #   sql-start <histogram|count|delete> <days> [batch]  same for the elmah.errors table in the app's
 #                                  Default database (runs on the app side, so no SQL firewall rule needed)
 #   sql-status | sql-stop          poll / kill the SQL job
+#   webjob-install | webjob-status (Windows) install / check the nightly elmah-cleanup WebJob
 #   exec "<command>"               run a short bash (Linux) or PowerShell (Windows) command
 #                                  (Kudu kills requests after ~230s)
 
@@ -134,6 +135,20 @@ else
       ;;
     sql-stop)
       kudu_exec "\$p = Get-Content '$SQLWORK/pid' -ErrorAction SilentlyContinue; if (\$p) { Stop-Process -Id \$p -Force -ErrorAction SilentlyContinue }; Remove-Item '$SQLWORK/pid' -ErrorAction SilentlyContinue; 'stopped'"
+      ;;
+    webjob-install)
+      # Installs assets/elmah-cleanup-webjob as a scheduled triggered WebJob (needs Always On).
+      # It lives in App_Data/jobs, which release pipelines with "exclude App_Data" never touch.
+      # Zip in memory and stream through stdin: with MSYS_NO_PATHCONV a native Windows python/curl
+      # can't open /c/... or /tmp/... paths, so run from the asset dir with relative names.
+      ( cd "$SCRIPT_DIR/../assets/elmah-cleanup-webjob" && python -I -c "import io,sys,zipfile; b=io.BytesIO(); z=zipfile.ZipFile(b,'w',zipfile.ZIP_DEFLATED); [z.write(n) for n in ('run.ps1','settings.job')]; z.close(); sys.stdout.buffer.write(b.getvalue())" ) \
+        | curl -sS -m 60 -o /dev/null -w "install http=%{http_code}\n" -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/zip" -H "Content-Disposition: attachment; filename=elmah-cleanup.zip" \
+            -X PUT --data-binary @- "$KUDU/api/triggeredwebjobs/elmah-cleanup"
+      ;;
+    webjob-status)
+      J=$(curl -sS -m 60 -H "Authorization: Bearer $TOKEN" "$KUDU/api/triggeredwebjobs/elmah-cleanup" || true)
+      printf '%s' "$J" | python -I -c "import sys,json; s=sys.stdin.read().strip(); j=json.loads(s) if s.startswith('{') else None; r=(j or {}).get('latest_run') or {}; print('not installed' if j is None else 'schedule=%s\nlatest_run=%s %s %s' % ((j.get('settings') or {}).get('schedule'), r.get('status'), r.get('start_time'), r.get('duration')))"
       ;;
     exec)
       kudu_exec "${1:?command required}"
