@@ -28,6 +28,10 @@ CAPABILITY MANIFEST (authoritative — do NOT re-detect, do NOT install anything
   strong level. gitleaks absent => SEC-E recall NOT-ASSESSED(no-secret-scanner), seam-grep = CODE-ONLY.
   No low-priv account => authenticated dimension of SEC-A/B/C/K/L/M/N NOT-ASSESSED(no-low-priv-user);
   anonymous/static stands alone. (See checks/security.md capability-gating table.)
+  SEC-ESC needs per-role synthetic logins on a restorable copy => else NOT-ASSESSED(no-per-role-logins).
+  SEC-DRIFT/SEC-RESET need two live captures (old/new build, first start/restart) => else
+  NOT-ASSESSED(no-before-capture). A module only on a branch not under review =>
+  NOT-ASSESSED(branch-not-audited), listed by name, never dropped.
 
 OUTPUT CONTRACT (every finding; operating-standard §§2-6,8):
   1. finding_id = <CHECK-ID>@<anchor>  — NO -1/-2/-3 ordinal. N anchors => N findings. Anchor by
@@ -63,7 +67,7 @@ Keep BA questions and PM concerns separate from findings.
 
 ### Orchestration rules (fixed, not judgement)
 - **Fixed sub-area partition** (a team split and a single-operator run merge byte-identically):
-  - access-control = SEC-A, SEC-B, SEC-C, SEC-K, SEC-P (JWT-trust), SEC-Q (GraphQL data-plane), SEC-S (tenant isolation) (+ consumed handovers CODE-G-1, CODE-F-1/2, CODE-G-3)
+  - access-control = SEC-A, SEC-B, SEC-C, SEC-K, SEC-P (JWT-trust), SEC-Q (GraphQL data-plane), SEC-S (tenant isolation), SEC-FW (framework entities via generic CRUD), SEC-ESC (admin takeover), SEC-DRIFT / SEC-RESET (upgrade drift, start-up reset), SEC-GONE (forms calling removed endpoints) (+ consumed handovers CODE-G-1, CODE-F-1/2, CODE-G-3)
   - secrets & config = SEC-E, SEC-I, SEC-O, SEC-D
   - input & data = SEC-G, SEC-L, SEC-M, SEC-N, SEC-H
   - real-time & messaging = SEC-F, SEC-J, SEC-R (background-job trust)

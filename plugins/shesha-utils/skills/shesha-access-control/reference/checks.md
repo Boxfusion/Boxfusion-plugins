@@ -62,6 +62,10 @@ derived by the scoring key (shown for orientation). `root_cause` is the registry
 | **SEC-L** | DTO ↔ entity mapping | a write DTO lets a caller set a field they must not (over-posting) | CODE-ONLY | `<path>#<Type>.<Member>` | `AC-SEC-L-dto-allowlist` | inventory INV-OVERPOST + two-account field probe | High |
 | **SEC-S** | tenant filter scan | no tenant global spec / cross-tenant read reproducible | CODE-ONLY absence / REPRODUCED live | `db:<Entity>` | `AC-SEC-S-global-spec` | inventory INV-TENANT + cross-tenant probe | High (+popia) |
 | **INV-CHK** | custom-checker source + probe | a custom `ICustomPermissionChecker` `default`/fallthrough returns-not-false, **or** a granted non-admin is still denied | CODE-ONLY (grep) + REPRODUCED (grants-have-effect probe) | `<path>#<Type>.<Member>` | `AC-INV-CHK-default-false` | inventory INV-GRANTS-HAVE-EFFECT + grant/deny two-account probe | High |
+| **SEC-FW** | `framework-entity-crud` probe results + `Shesha.Entity.Action` records | a package-owned entity's generic CRUD action answers a signed-out or role-less caller (OPEN / REACHED / NOT-FOUND) | REPRODUCED | `http:<VERB> /api/dynamic/<ns>/<Entity>/Crud/<op>` | `AC-SEC-FW-lock-framework-entity` | inventory INV-CUD-CLOSED extended to package entities + anonymous/role-less probe, before and after a restart | Critical (anonymous, identity/financial) / High |
+| **SEC-ESC** | per-role live probe on a restorable copy (synthetic admin target) | a member of a non-admin role changed an administrator's password, sign-in name, recovery email/mobile, security answers, roles or tokens | REPRODUCED | `http:<VERB> <route>` + `role:<role>` | `AC-SEC-ESC-admin-credential-guard` | per-role takeover probe (403 and target unchanged) + guard unit tests | Critical (`popia_special`: an admin reaches everything) |
+| **SEC-DRIFT** | `drift.py` old vs new build | a built-in record opened, or now also accepts a permission a non-admin role holds | VERIFIED-ARTEFACT (diff), then REPRODUCED (probe as that role) | `dmv:permissionedobject:<record>` | `AC-SEC-DRIFT-redesign-after-upgrade` | `drift.py` exit 0 on the next upgrade + per-role probe | High |
+| **SEC-RESET** | `drift.py` first start vs restart | a custom record became hard-coded, changed, or disappeared across start-up | VERIFIED-ARTEFACT | `dmv:permissionedobject:<record>` | `AC-SEC-DRIFT-redesign-after-upgrade` | restart test: records identical after two starts + a unit test pinning the hard-coded assumption | High |
 
 **Determinism rules the predicates obey** (so two runs agree byte-for-byte):
 - Anchors are symbols/routes, never raw line numbers (determinism-standard §2); the inventory test
@@ -86,6 +90,9 @@ Templated, never free prose (determinism-standard §5). All `access-control` pla
 | `AC-SEC-L-dto-allowlist` | write DTO allow-list / explicit field binding against over-posting | INV-OVERPOST + two-account field probe |
 | `AC-SEC-S-global-spec` | tenant/owner `[GlobalSpecification]` (+ reasoned exemption register) | INV-HAS-SPEC, INV-TENANT + cross-tenant probe |
 | `AC-INV-CHK-default-false` | inverse checker returns `false` by default + grants-have-effect probe | INV-GRANTS-HAVE-EFFECT + grant/deny two-account probe |
+| `AC-SEC-FW-lock-framework-entity` | framework / ABP / Enterprise entity actions set to Disable (unused) or an admin-only permission, by migration | anonymous + role-less probe, first start and after restart |
+| `AC-SEC-ESC-admin-credential-guard` | over-broad credential grants removed + code guard: only a System Administrator changes an admin's credentials | per-role takeover probe + guard unit tests |
+| `AC-SEC-DRIFT-redesign-after-upgrade` | rules re-designed against the post-upgrade, post-start-up state; hard-coded records handled in code or by deliberate grants | `drift.py` (upgrade and restart) + pinning unit test |
 
 ---
 
@@ -227,6 +234,85 @@ non-`false` default) **plus** a grant/deny two-account probe — a non-admin **g
 (grants-have-effect) **and** a non-admin **not** granted X is denied X (and the request does not
 crash). This is the only probe that catches the admin-invisible class of bug; it must run under a
 low-priv account or it emits `NOT-ASSESSED(no-low-priv)`.
+
+### SEC-FW: lock built-in entities exposed through generic CRUD · `AC-SEC-FW-lock-framework-entity`
+
+**Root cause** `RC-sec-no-authz`. Framework, ABP and Enterprise entities (user accounts, user
+roles and tokens, bank and financial accounts, settings and setting values, audit and change
+logs, file templates, stored files, notes) get the same generic dynamic CRUD as app entities.
+With no explicit record they follow the default endpoint access setting, which on some
+systems is anonymous.
+
+1. From the audit's `framework-entity-crud` results and the form, front-end and package-source
+   scans, split the exposed entities into **unused** (no form, coded screen, framework or
+   Enterprise screen, or integration calls them) and **used**.
+2. **Unused: Disable** every action (`Get`, `Create`, `Update`, `Delete`). Disable answers 404
+   to everyone, admin included. Confirm with the user first (SKILL Step 5 checklist).
+3. **Used: admin-only.** `RequiresPermissions` with a permission only administrators hold
+   (role management, or application settings for setting tables). Never an empty list (E6).
+4. Ship it as a **migration** that writes the `Shesha.Entity.Action` records (object
+   `<Full.Class.Name>@<Action>`), not as manual UI edits, so every environment gets it.
+5. **Restart and re-probe** signed out, as a role-less user and as the admin. A record the
+   framework hard-codes cannot be held by a migration; see SEC-DRIFT.
+
+**Regression test:** the anonymous and role-less probes of every locked action, on first start
+and after a restart; a unit test listing the locked entity actions, so a later migration cannot
+silently reopen one.
+
+### SEC-ESC: no non-admin path to an administrator's credentials · `AC-SEC-ESC-admin-credential-guard`
+
+**Root cause** `RC-sec-no-authz`. A role that may manage *some* users, or edit staff records
+synced to user accounts, can reach an administrator's account unless the target is checked.
+
+1. **Remove grants a role does not need.** Credential permissions (password reset, user
+   management) on front-line roles are often carried over from old permission names. Raise
+   "must this role reset other users' passwords at all?" as a business question, defaulting
+   to no.
+2. **Add a guard in code** on every path that changes a user's password, sign-in name, recovery
+   email or mobile, security questions or answers, password-reset methods, roles or tokens.
+   That means framework endpoints (via an app-level filter or a wrapping service) **and** app
+   services that sync person or staff changes to the user account:
+
+```csharp
+// Illustrative - verify the framework API shape for the target version (SKILL Key Rules).
+if (await TargetHoldsAdministrativePermissionAsync(targetUserId)
+    && !await CallerIsSystemAdministratorAsync())
+    throw new AbpAuthorizationException(
+        "Only a System Administrator may change the credentials of an administrator.");
+```
+
+   "Administrative permission" is a fixed list for the system (user and role management,
+   application configuration and settings, the System Administrator role itself). Keep it in
+   one place and unit-test it.
+3. For sync services, either refuse the credential fields for privileged targets or stop
+   syncing contact changes to the user account for them.
+
+**Regression test:** the per-role takeover probe
+(`../auditing-application-security/references/reaudit-and-upgrade-drift.md` section 3). Every
+non-admin role gets 403 on every credential path against a synthetic administrator, and the
+target is unchanged afterwards. A System Administrator still succeeds; a manager may still
+reset an ordinary user if the business wants that. Add unit tests for the guard.
+
+### SEC-DRIFT and SEC-RESET: design against the rules as they are after the upgrade · `AC-SEC-DRIFT-redesign-after-upgrade`
+
+**Root cause** `RC-sec-upgrade-drift`. A framework upgrade can rename permissions, OR a second
+permission into a built-in rule, remove records, and hard-code records. A hard-coded record
+marks a service not configurable and re-applies its requirement at start-up; on a first
+deploy that happens **after** the app's migrations.
+
+1. Run `drift.py` old build vs new build on the same database copy, and first start vs restart
+   of the new build.
+2. For each `WIDENED` record: list the roles that now pass, probe as each, and either remove
+   the grant from roles that should not pass or add a code guard (SEC-ESC for credentials).
+3. For each `RESET` or `RECORD-GONE` record, configuration cannot hold it. Choose one, and say
+   which: a code guard; granting the hard-coded permission deliberately (and reviewing who
+   holds it, since a mis-named role holding user management becomes a hole); or a request to
+   the framework team to make it configurable.
+4. Add a unit test that pins the assumption (e.g. "this endpoint requires exactly X"), so the
+   next upgrade fails a test instead of shipping silently.
+
+**Regression test:** `drift.py` exits 0 on both comparisons, plus the per-role probes and the
+pinning unit test.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: upgrade-shesha-stack
-description: Upgrades a Shesha project to a target Shesha version, resolving the matching version of every other Shesha and Boxfusion module from the private Azure Artifacts feed, updating the backend Directory.Build.props and all frontend @shesha-io/* packages, then restoring, building and installing to verify. Use when the user wants to upgrade, update, bump or migrate Shesha, BoxStack or Shesha module versions, or asks which module versions are compatible with a given Shesha version.
+description: Upgrades a Shesha project to a target Shesha version, resolving the matching version of every other Shesha and Boxfusion module from the private Azure Artifacts feed, updating the backend Directory.Build.props and all frontend @shesha-io/* packages, then restoring, building and installing to verify, and checking security drift (widened framework permissions, start-up resets, removed endpoints forms still call). Use when the user wants to upgrade, update, bump or migrate Shesha, BoxStack or Shesha module versions, or asks which module versions are compatible with a given Shesha version.
 ---
 
 # Upgrade Shesha Stack
@@ -32,6 +32,18 @@ failing.
 
 Run `git status`. Report any pre-existing uncommitted changes so the user can
 tell them apart from this upgrade's edits. Do not commit or stash unless asked.
+
+**Capture the security baseline now, before anything changes**, if the old build
+can run against a local database copy (step 8 needs it):
+
+```bash
+A=<auditing-application-security skill dir>/resources
+python $A/collect.py --url <old-build-url> --cache drift/before --refresh
+python $A/analyze_forms.py --url <old-build-url> --cache drift/before
+```
+
+Only ever against an isolated local copy. Without this capture, step 8 can only
+compare first start with restart, and widened rules go unseen.
 
 ### 2. Resolve the version set
 
@@ -148,10 +160,51 @@ report the installed version rather than assuming it equals the target.
 the frontend root's `.npmrc`) plus credentials for that registry in the
 user-level `~/.npmrc`. Missing either produces a confusing 401.
 
-### 8. Report
+### 8. Check security drift
+
+A framework upgrade changes security without touching the app's code. Real
+example: Shesha 0.43.41 made the password-reset endpoint accept
+`User-ResetPassword` **or** `User-Manage`. Front-line roles held the first, so
+they could reset an administrator's password and sign in as them. The same
+release hard-coded `UserManagement/Create` to `User-Manage` and re-applied it at
+every start-up, overwriting a tighter custom record. It also removed the generic
+role-appointment `Create`/`Delete` routes that app forms still called. Treat the
+upgrade as unfinished until this step passes.
+
+On the same isolated database copy, start the **upgraded** build, capture, restart
+it, capture again, and diff:
+
+```bash
+python $A/collect.py --url <new-build-url> --cache drift/after --refresh
+python $A/analyze_forms.py --url <new-build-url> --cache drift/after
+# restart the API, then:
+python $A/collect.py --url <new-build-url> --cache drift/restart --refresh
+python $A/drift.py --before drift/before --after drift/after   --json drift/upgrade.json
+python $A/drift.py --before drift/after  --after drift/restart --json drift/restart.json
+```
+
+`drift.py` exits 1 and lists, per permission record:
+
+- `WIDENED`: the record opened, or now also accepts a permission a non-admin role
+  holds. Probe it as each such role.
+- `RESET` / `RECORD-GONE`: a custom record did not survive start-up. A migration
+  cannot hold a hard-coded record; it needs a code guard or a deliberate grant.
+- `FORM-CALLS-GONE`: forms still call a route the new version removed. Repoint
+  them to the replacement endpoint; never re-open the old route.
+- `GRANTS`: role permissions renamed or dropped by the framework.
+
+Hand every `WIDENED`, `RESET`, `RECORD-GONE` and `FORM-CALLS-GONE` row to the user
+as a security finding (`auditing-application-security` checks SEC-DRIFT,
+SEC-RESET and SEC-GONE; fixes in `shesha-access-control`). Details:
+`auditing-application-security/references/reaudit-and-upgrade-drift.md` §4–§5.
+If no database copy is available, say the drift check was **not run**; never
+report the upgrade as security-neutral.
+
+### 9. Report
 
 State before/after for every property and package, the build result, the
-lockfile confirmation, and anything left unresolved or flagged `compat`.
+lockfile confirmation, anything left unresolved or flagged `compat`, and the
+drift result (or that it was not run).
 
 ## Rules
 
@@ -175,6 +228,8 @@ lockfile confirmation, and anything left unresolved or flagged `compat`.
 - **The `.sln` defines the project.** Ignore `.csproj` files it does not name.
 - **Version fields belong to the pipeline.** Never increment a project's own
   version.
+- **An upgrade is a security change.** Run step 8 every time; a clean build says
+  nothing about who can now call what.
 
 ## Notes on the module ecosystem
 

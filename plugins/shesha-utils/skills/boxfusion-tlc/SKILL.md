@@ -28,6 +28,7 @@ Many BoxFusion systems were built by developers early in their careers. The repo
 | Escalation (only if needed) | When a QA finding is serious and likely present in production, a request to escalate to the IT Manager for production data |
 | Phase 6 | Each finding in turn, with two options: **Agree** or **Discuss** |
 | End | The agreed plan, the proposed board (one parent work item and a few tasks) and the PR grouping, then **"Let's begin!"** |
+| Phase 7b | After the fixes merge, before human testing: the re-test and re-audit result, and what (if anything) blocks human testing |
 
 **Documents for other people,** handed to the user to pass on:
 - **The report** for the PM (summary, concerns), the BA (questions) and the developers (teaching sections).
@@ -114,6 +115,7 @@ Keep it to one message, and detect before asking.
 | 5. Report | Main report plus the Shesha team report | `diagnosis/REPORT.md`, `diagnosis/SHESHA-TEAM-REPORT.md` |
 | 6. Walkthrough | Each finding: **Agree** or **Discuss**. Then the board and PR plan, then **"Let's begin!"** | Agreed plan |
 | 7. Fix | Work item `{SystemName}-TLC-Fixes` with consolidated tasks; engineer sessions build the fixes the framework's way, with tests; PRs | PRs linked to tasks |
+| 7b. Post-merge re-test and re-audit | **Before human testing.** On the merged code: re-run every existing test suite and probe suite, re-run the security audit (and the upgrade-drift check if a framework upgrade merged), triage, fix blockers | `diagnosis/07b-post-merge-retest.md` |
 | 8. Learn | New problem types and skill faults become a generalised, scanned skill-upgrade PR; **reviewer: Igor Kors (igorkors-boxfusion), always** | `diagnosis/LEARNINGS.md`, upgrade PR |
 
 **Timing in one line:** Phase 0 and Phases 1–2 start together and run side by side, with two separate sets of staff (the test-coverage team and the topic owners). Phase 2b follows Phase 2. Only Phase 3 waits for the harness. Phases 4–5 follow Phase 3.
@@ -205,6 +207,7 @@ The inputs come from the Start step. If only a development database exists, labe
 
 Record everything in `diagnosis/01-recon.md`, taking every fact from a command or a file, not memory. **Also emit the machine-readable Capability Manifest `manifest.json` (`${CLAUDE_PLUGIN_ROOT}/shared/operating-standard.md` §1)** — every field resolved by a command, never by belief: repo commit + tree-state, stack versions + `$DLL` path, and each capability (db copy + canary, backend + url, low-priv account, App Insights, private feeds, and tool presence/versions for gitleaks/ilspycmd/dotnet/sqlcmd/playwright), plus the mandatory declared `severity_target`. The manifest is what makes two runs comparable (same manifest ⇒ comparable; differences are expected only where capabilities differ). Recon prose and the manifest agree because both are built from the same commands.
 - stack and versions (.NET, ABP, the **Shesha version**, Node, DBMS). **Resolve the Shesha version from `backend/Directory.Build.props` `$(SheshaVersion)` (and `project.assets.json`), not from a prose file** — a starter's `VersionInformantion.md` / README often states the *starter-template* version (e.g. "v0.30.1") which is NOT the framework version, and the per-project `.csproj` references the MSBuild variable `$(SheshaVersion)` rather than a literal, so a csproj grep for a version number finds nothing. Cross-check with `@shesha-io/reactjs` in the portal. **Also record the DBMS(es):** a Shesha starter is often **dual-DBMS (SQL Server + PostgreSQL)** — note which the system actually runs, because the SQL checks and tooling assume SQL Server (see `shesha-sql-review`). **Verify VCS state with `git rev-parse` / `git status`, not the environment banner** — the harness "Is a git repository" line is sometimes wrong (it has reported `false` for a repo with thousands of commits).
+- **branch and module coverage:** list the long-lived branches that are ahead of the release branch and the modules, products or portals that exist **only** there (`git for-each-ref` on the remotes, then `git log <release>..<branch>` and the projects/modules each adds). Ask which branch each environment deploys from. Never assume the release branch covers everything: a whole product once lived only on a feature branch, so none of the security work reached it. Every module not on the branch under review is **out of scope: not reviewed**, named in the report's coverage section and the manifest — never silently dropped, and its rows in a shared database are a coverage gap, not noise (`auditing-application-security`, `references/reaudit-and-upgrade-drift.md` §1).
 - **module map (multi-module systems):** list the back-end modules and front-end portals (and their individual package versions — portals drift). Emit this map so inspectors partition by module; the `team.md` ID ranges assume one or two modules, so for N modules give each module its own ID band (e.g. `FORM-<module#>00..`) rather than the fixed two-way split.
 - the main entities and roles, and how access is meant to be restricted;
 - deployment history (migration dates, form configuration versions, config packages);
@@ -221,6 +224,11 @@ Record everything in `diagnosis/01-recon.md`, taking every fact from a command o
 Before launching, the main session assigns **topic ownership** and **ID ranges** so findings aren't duplicated (`references/team.md`, "Topic ownership" and "ID ranges"). Inspectors that spot something in another owner's topic add a one-line "handover" instead of a full finding, and refer to other areas by topic, not by guessed ids.
 
 **Run the settings probe first** (`auditing-application-security` SEC-I). On Shesha 0.43.x–0.44.x it can find secrets readable anonymously (confirmed present through 0.44.2 by decompile; re-verify per version). A hit is an urgent stop (see "What the user sees during a run").
+
+**Then the probes a first audit has missed** (each was found only by a post-merge re-audit; `auditing-application-security` `references/reaudit-and-upgrade-drift.md`):
+- the **framework-entity sweep (SEC-FW)**: every Shesha, ABP and Enterprise entity's generic CRUD (`/api/dynamic/<ns>/<Entity>/Crud/...`), signed out **and** as a low-privilege user — not only app entities, never only as the admin. An anonymous list of every user account is an urgent stop;
+- **admin takeover (SEC-ESC)**: per non-admin role, can it change an administrator's password, sign-in name, recovery email or mobile, security answers, roles or tokens? A live probe on the isolated copy (synthetic accounts, outbound mail and SMS off), or NOT-ASSESSED where the manifest has no copy;
+- **upgrade drift (SEC-DRIFT, SEC-RESET, SEC-GONE)** when the system was upgraded recently or the plan includes an upgrade: `drift.py` old vs new build and first start vs restart, and forms that call removed endpoints.
 
 **Dispatch** the division skills in `references/team.md` **in parallel**, invoking each by name. Each gets `01-recon.md`, `00-test-readiness.md`, its topic list, the capability manifest and `${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`; each skill carries its own check catalogue. (When you hand a brief or a bundled-file path to a dispatched inspector, substitute your resolved `${CLAUDE_PLUGIN_ROOT}` for any literal occurrence — Claude Code auto-substitutes it only inside a `SKILL.md`, not in `shared/`/`checks/`/`references/` files.)
 
@@ -296,6 +304,17 @@ Not in `--dev-mode-only`. Reached on "Let's begin!" (`--interactive`), or straig
    Never run two engineers on the same files.
 4. Each fix ships with its tests passing; the e2e suite runs before a PR is pushed **only when e2e is enabled** (`--deep`/`--e2e`), otherwise the integration tests gate it. PRs follow `references/work-items-and-prs.md` (links, description, rollback export, one open package per form).
 5. The correspondent (the main session) tracks progress against the finding IDs and reports to the user. **In `--auto-fix` only the allowlisted mechanical fixes ship automatically** (SKILL.md Modes); everything judgement-heavy stays a finding.
+6. **A fix that moves a secret out of the repository carries its hand-over in the same PR:** the pipeline variable and local environment variable names, developer set-up steps, the committed value flagged for rotation, and a warning that builds or sign-in fail until the variable exists (`hardening-shesha-app`, "Moving a secret out of the repository"). A feed key moved to an environment reference once broke the pipeline restore (`NU1301`) because nobody created the variable.
+7. **A fix that upgrades the framework runs the upgrade's security-drift step** (`upgrade-shesha-stack` step 8) and restarts the app to prove custom permission records survive start-up, before its PR is pushed.
+
+### Phase 7b: post-merge re-test and re-audit (before human testing)
+
+Not in `--dev-mode-only` or `--educational`. Runs once the fix PRs (security ones above all) are merged, on the **merged** branch, on an isolated local copy, and before anyone starts human testing. It is the last step of the security process.
+1. **Re-run every existing test:** unit and integration tests, e2e and regression suites, and every probe suite the fixes added. Compare each suite before and after the merge, and give every failure a reason: regression, known product defect, environment, or stale test (a test of the old, insecure behaviour — update it, and say so).
+2. **Do not author new e2e suites in this step.** If none exist, report it as a gap: "no e2e or regression suite exists; nothing exercises the screens".
+3. **Re-run the security audit** with the low-privilege account and the framework-entity sweep, the admin-takeover probe for every role that now exists, and the upgrade-drift check (first start and restart) if a framework upgrade merged. Compare with the first audit and say where it is not like-for-like (new principals mean "newly observed", not "new regression").
+4. **Triage** every new or still-open row into ours, business decision, Shesha or package team, or noise, re-probing each first. Fix what blocks human testing, and list it separately from what can wait.
+5. Write `diagnosis/07b-post-merge-retest.md` in plain English and tell the user what blocks human testing.
 
 ### Phase 8: learn (every run)
 

@@ -15,13 +15,14 @@ Stdlib-only Python 3.8+. No pip install, no external dependencies.
 | `scan_package_sources.py` | Framework/Enterprise source → endpoints their own pages, components, packaged forms and back-end code call. Scans only the units this app resolves |
 | `crossref.py` | Backend surface ∩ everything referenced |
 | `probe.py` | Drives `probe_matrix.json` and assigns verdicts honestly |
-| `extend_probe_matrix.py` | Generates probes for **this** application from its catalogue. Write endpoints are generated disabled |
+| `extend_probe_matrix.py` | Generates probes for **this** application from its catalogue, plus the framework-entity CRUD sweep (every package-owned entity, signed out and low-privilege). Write endpoints are generated disabled |
+| `drift.py` | Compares two `collect.py` captures (old vs new build, or first start vs restart): widened or reset permission records, lost records, role-grant changes, removed routes that forms still call. Exit 1 on the dangerous kinds |
 | `object_auth.py` | Object-level authorization (IDOR/BOLA), file ownership, workflow tasks. **Needs the second account** |
 | `posture_scan.py` | Token and session policy, rate limiting, dependency advisories, secrets in tracked config |
 | `build_catalogs.py` | Everything above → the per-package JSON catalogue |
 | `catalog_schema.py` | **The catalogue's format, declared once**: fields, order, types, defaults, sort keys. The builder normalises to it, the workbook takes its columns from it, `verify_run.py` enforces it. Imported, not run |
 | `digest.py` | The catalogue → the actionable rows only, per package, in priority order |
-| `verify_run.py` | Checks the written reports against the catalogue. **Run it before showing anyone the run** |
+| `verify_run.py` | Checks the written reports against the catalogue, and that probes ran signed out, as the low-privilege user and with the framework-entity sweep. **Run it before showing anyone the run** |
 | `findings.py` | `findings.json` built from the catalogue, and the diff between two runs |
 | `export_workbook.py` | **Final step.** The catalogue → `security-catalog-<run>.xlsx`, one worksheet per object type, key columns first |
 | `report.py` | Mechanical tables, if a supporting appendix is wanted |

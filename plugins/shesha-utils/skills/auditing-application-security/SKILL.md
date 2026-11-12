@@ -1,6 +1,6 @@
 ---
 name: auditing-application-security
-description: Catalogues and security-reviews a whole Shesha application — roles and permissions, configured forms, coded screens, custom endpoints, entities and their CRUD APIs — then writes plain-English, prioritised remediation recommendations per package. Self-contained — starts the dev servers, collects live configuration, scans form markup and front-end source, probes endpoints anonymously and as a low-privilege user, checks Startup.cs, appsettings, tokens, rate limiting and dependencies, and resolves each object's effective access from live PermissionedObject data. Emits per-package JSON catalogues plus {package}-recommendations.md. Use when the user asks to security-audit, review, pen-test or harden a Shesha application, to catalogue its endpoints, entities, forms, roles or permissions, to find unsecured, anonymously-accessible, unused or orphaned API surface, or to check which permissions and forms are actually referenced.
+description: Catalogues and security-reviews a whole Shesha application — roles and permissions, configured forms, coded screens, custom endpoints, entities and their CRUD APIs — then writes plain-English, prioritised remediation recommendations per package. Self-contained — starts the dev servers, collects live configuration, scans form markup and front-end source, probes endpoints and built-in framework entities anonymously and as a low-privilege user, diffs permission drift across upgrades, checks Startup.cs, appsettings, tokens, rate limiting and dependencies, and resolves each object's effective access from live PermissionedObject data. Emits per-package JSON catalogues plus {package}-recommendations.md. Use when the user asks to security-audit, review, pen-test or harden a Shesha application, to catalogue its endpoints, entities, forms, roles or permissions, to find unsecured, anonymously-accessible, unused or orphaned API surface, or to check which permissions and forms are actually referenced.
 ---
 
 # Auditing Application Security
@@ -46,20 +46,13 @@ Arguments (from `$ARGUMENTS`, all optional):
 ```
 security-audits/260901-0930/
   recommendations-index.md              <- the lead reads this
-  Shesha.Hcm-recommendations.md         <- one per package with findings
-  SaGov.Leave-recommendations.md
-  ...
+  <package>-recommendations.md          <- one per package with findings
   security-catalog-260901-0930.xlsx     <- reviewers work from this (final step)
   catalog/
     _index.json                         <- manifest, totals, confidence, missing inputs
     review-overrides.json               <- the review phase's decisions
-    Shesha.Hcm-roles-and-permissions.json
-    Shesha.Hcm-configured-forms.json
-    Shesha.Hcm-endpoints.json
-    Shesha.Hcm-entities.json
-    Shesha.Hcm-other-findings.json
-    adminportal-custom-forms.json
-    ...
+    <package>-{roles-and-permissions,configured-forms,endpoints,entities,other-findings}.json
+    <frontend>-custom-forms.json
 ```
 
 Fix the directory once and pass it to every script as `--run-dir`:
@@ -92,6 +85,7 @@ Reference files, each read when its step is reached — not up front:
 | `references/package-sources.md` | Step 5b — what the framework/Enterprise source scan counts, and running without it |
 | `references/probing.md` | Step 7 — extending the probe matrix, object-level authorization, posture |
 | `references/reporting-phase.md` | Steps 11–13 — writing, verifying and exporting the report |
+| `references/reaudit-and-upgrade-drift.md` | Step 1 (branch coverage), Step 7 (framework entities, admin takeover), and any audit after a framework upgrade or a merge (drift, the re-audit gate) |
 | `references/resources-pipeline.md` | What every script does, and driving them by hand when diagnosing one step |
 
 Executable resources live in `resources/` (stdlib-only Python 3.8+). **Prefer them over ad-hoc
@@ -202,6 +196,10 @@ them, and a frontend and backend on mismatched minor versions is itself worth re
 
 **If more than one front-end exists and only one will be scanned, say so now** — it caps the
 confidence of every unreferenced result in the whole audit.
+
+**Inventory the branches** (`references/reaudit-and-upgrade-drift.md` §1). A long-lived branch
+can hold whole modules the release branch lacks; never assume one branch covers everything.
+List every module this run does not cover as `NOT-ASSESSED(branch-not-audited)`.
 
 **Backend up?** Probe `GET {BASE_URL}/api/TokenAuth/GetExternalAuthenticationProviders`. If it
 does not answer, follow `references/dev-servers.md`. On a cold database the backend takes
@@ -358,9 +356,15 @@ allowlist. Read the verdicts literally:
 | `UNREACHABLE` | 000. The backend is down. Never a verdict |
 | `EXPECTED` | 200 where anonymous access is allowlisted. Pass |
 
-Then extend the matrix with this application's own surface, and interpret `object_auth.py` and
-`posture_scan.py`: read `references/probing.md`. Never skip the extension — the framework matrix
-alone misses the application's own endpoints.
+Then extend the matrix with this application's own surface and the **framework-entity sweep**
+(every Shesha, ABP and Enterprise entity's generic CRUD, signed out and low-privilege), and
+interpret `object_auth.py` and `posture_scan.py`: read `references/probing.md`. `run_audit.py`
+runs the extension and re-probes; never skip it — a first audit that probed only app entities
+as the admin missed an anonymous list of every user account.
+
+**Admin takeover (SEC-ESC)** needs a per-role live probe on a restorable copy: can any non-admin
+role change an administrator's password, sign-in name, recovery email or mobile, security
+answers, roles or tokens? Follow `references/reaudit-and-upgrade-drift.md` §3.
 
 ## Step 8: Application source checks
 
@@ -452,20 +456,10 @@ a template for — then **re-run `build_catalogs.py`**. Overrides can set `sensi
 `recommendedAction`, `severityHint`, `status` and `package`, and each needs a `note`:
 
 ```json
-{
-  "endpoints": {
-    "/api/services/Hcm/HcmHealthCheck/Check": {
-      "recommendedAction": "KEEP", "sensitivity": "LOW",
-      "note": "Load balancer health probe; returns no data. Accepted."
-    }
-  },
-  "entities": {
-    "Shesha.Leave.Domain.LeaveRequest": {
-      "sensitivity": "HIGH",
-      "note": "Confirmed: holds medical certificate attachments."
-    }
-  }
-}
+{"endpoints": {"/api/services/Hcm/HcmHealthCheck/Check": {"recommendedAction": "KEEP",
+   "sensitivity": "LOW", "note": "Load balancer health probe; returns no data. Accepted."}},
+ "entities": {"Shesha.Leave.Domain.LeaveRequest": {"sensitivity": "HIGH",
+   "note": "Confirmed: holds medical certificate attachments."}}}
 ```
 
 This is what keeps the report and the catalogue arithmetically identical. Every number in the
@@ -483,6 +477,10 @@ Read `references/reporting-phase.md` and follow it for Steps 11–13. In short:
   exists, `findings.py --diff`; put the comparison in the index.
 - **Step 13** — `export_workbook.py`, always last. Summarise to the user, then stop any servers
   this session started.
+
+**After a framework upgrade or a merge of security fixes**, also run `drift.py` (old vs new
+build, then first start vs restart), check forms for removed endpoints, and run the post-merge
+re-test and re-audit gate: `references/reaudit-and-upgrade-drift.md` §4–§7.
 
 ## The honesty rules, in one place
 

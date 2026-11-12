@@ -327,6 +327,11 @@ CHECK_REGISTRY = {
                                "RC-sec-deps", SC, nd=True),
     "D2-npm-audit":         _r("K2", "maintainability", "local_only", "none",
                                "RC-sec-deps", SC, nd=True),
+    # SEC-FW - framework / ABP / Enterprise entity open through generic dynamic CRUD. Emitted
+    # for probe rows of the `framework-entity-crud` group. ND: a live probe decides it.
+    "SEC-FW-framework-entity": _r("SEC-FW", "data_exposure_pii", "anonymous", "pii_basic",
+                                  "RC-sec-no-authz", AC, nd=True,
+                                  plan="AC-SEC-FW-lock-framework-entity"),
 }
 
 # Categories whose findings are intrinsically ND (live probe / live state), so even with no

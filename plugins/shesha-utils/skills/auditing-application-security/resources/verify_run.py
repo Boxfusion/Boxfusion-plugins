@@ -430,6 +430,39 @@ def check_posture_groups(cache_dir_path, res):
                ["group run times: %s" % ", ".join(stamps)] if len(stamps) > 1 else [])
 
 
+def check_principal_coverage(probe_file, res):
+    """Did the probes actually run signed out AND as a low-privilege user, and did the
+    framework-entity sweep run? An audit that probed only as the administrator cannot see
+    a framework entity that answers the whole internet - a first audit missed an anonymous
+    user-account list that way, and the re-audit found it a week later."""
+    if not os.path.isfile(probe_file):
+        res.warn("principal-coverage", "no probe-results.json - nothing was probed signed "
+                 "out or as a low-privilege user (--skip-live / --skip-probes?). The report "
+                 "must name this as SKIP and mark every access finding derived")
+        return
+    try:
+        doc = json.load(io.open(probe_file, encoding="utf-8"))
+    except ValueError:
+        res.fail("principal-coverage", "probe-results.json is not valid JSON")
+        return
+    results = doc.get("results") or []
+    principals = {r.get("principal") for r in results}
+    sweep = [r for r in results if r.get("group") == "framework-entity-crud"]
+    problems = []
+    if "anonymous" not in principals:
+        problems.append("no probe ran signed out")
+    if "lowpriv" not in principals:
+        problems.append("no probe ran as a low-privilege user (pass --lowpriv-user)")
+    if not sweep:
+        problems.append("the framework-entity CRUD sweep did not run (extend_probe_matrix.py "
+                        "without --no-framework-entities, then probe.py)")
+    if problems:
+        res.fail("principal-coverage", "probe coverage is incomplete: " + "; ".join(problems))
+    else:
+        res.ok("principal-coverage", "probed signed out and as a low-privilege user, with "
+               "%d framework-entity sweep result(s)" % len(sweep))
+
+
 def check_findings_index(run_dir, res):
     path = os.path.join(run_dir, "findings.json")
     if not os.path.isfile(path):
@@ -529,6 +562,7 @@ def main():
     check_overrides(index, res)
     check_reviewed_citations(run_dir, docs, res)
     check_posture_groups(cache_path, res)
+    check_principal_coverage(probe_file, res)
     check_findings_index(run_dir, res)
     check_reproducibility(run_dir, res)
 

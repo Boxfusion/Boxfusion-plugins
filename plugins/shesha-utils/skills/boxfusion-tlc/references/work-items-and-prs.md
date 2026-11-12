@@ -35,8 +35,11 @@ The goal is a board people can follow, not a flood of tickets.
   - the framework mechanisms used (`${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md`);
   - tests: the reproducing test now passing, plus the e2e results (run before push);
   - rollout notes: config packages, migrations, deploy order, anything to check in production first, and **the rollback step: a read-only export of the rows each package will overwrite, taken before import** (packages can't be rolled back on their own);
+  - **for a secret moved out of the repository:** the pipeline variable and local environment variable names, developer set-up steps, the committed value flagged for rotation (presence only), and what fails until the variable exists (e.g. a restore with `NU1301`); reviewers create the variables before merging;
+  - **for a framework upgrade:** the security-drift result (`upgrade-shesha-stack` step 8) and proof that custom permission records survived a restart;
   - any emergency shortcut, with its follow-up item;
   - open BA decisions.
 - **At most one open package per form across all PRs** (`${CLAUDE_PLUGIN_ROOT}/shared/framework-standards.md` caveats). If two tasks touch one form, sequence them, or put the form change in one PR.
 - Don't merge, enable auto-merge or deploy unless the user asks.
+- **Add a "Post-merge re-test and re-audit" task** (SKILL.md Phase 7b) that depends on the fix PRs. It closes only when the merged build has been re-tested and re-audited, before human testing starts.
 - The test-coverage branch from Phase 0 (`tlc/test-coverage`) gets its own PR and its own task, "Test coverage to standard". Ideally it merges first, so later PRs can rely on it. In a trial run it stays local, with no PR.

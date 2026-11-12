@@ -82,7 +82,8 @@ reports when the skill loads).
    End your reply with this table, covering every check that ran, not only the ones with gaps.
    Update the *Current state* column if step 6 changed anything (e.g. a build failure), and add
    one line under the table for anything the user must do next: upgrade and re-run, manual fixes,
-   or uncommitted fixes.
+   or uncommitted fixes. For every secret a fix moved out of the repo, add its hand-over (variable
+   names, local set-up, rotation, what fails until the variable exists).
 
 Exit code: `0` means no FAIL, `1` means at least one FAIL (usable as a CI gate), `2` means a usage error.
 
@@ -170,3 +171,8 @@ python $SKILL/scripts/diff_runs.py a.json b.json      # exit 0 = converged
   (`~/.nuget/packages/...`) before falling back to a version table. A fix that needs a newer
   framework is never applied early: the check still reports the problem and says to upgrade and re-run.
 - **Minimal diffs.** Keep line endings, BOM, indentation and comments; change the fewest characters possible.
+- **A secret moved out of the repo ships with its hand-over.** The same change names the pipeline
+  variable and the local environment variable, gives developer set-up steps, flags the committed
+  value for rotation, and warns that builds or sign-in fail until the variable exists. A feed key
+  moved to an environment reference once broke the pipeline restore (`NU1301`) because nobody
+  created the variable. See `references/checks.md`, "Moving a secret out of the repository".

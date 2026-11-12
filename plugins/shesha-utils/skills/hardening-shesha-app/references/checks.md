@@ -230,6 +230,11 @@ dotnet user-secrets set "Authentication:JwtBearer:SecurityKey" "$(openssl rand -
 Rotating the key invalidates every issued token, so every user is logged out. That is the
 intended effect when a key may have leaked; schedule it, do not spring it.
 
+**Hand-over (required in the same change).** The fix prints these as notes; put them in the PR
+description. Follow "Moving a secret out of the repository" below: pipeline and host variable
+`Authentication__JwtBearer__SecurityKey`, local `dotnet user-secrets` steps, rotation of the
+committed value, and the warning that sign-in fails until the variable exists.
+
 **Verify.** `git grep -n "SecurityKey" -- "*appsettings*.json"` shows an empty value. Log in and
 confirm tokens are still issued (the runtime now reads the key from the secret store / env).
 
@@ -277,6 +282,37 @@ Set `App:CorsOrigins` per environment (comma-separated, no `*`). Never pair `*` 
 
 **Verify.** From a disallowed origin, a browser pre-flight (`OPTIONS`) must omit
 `Access-Control-Allow-Origin`; from an allowed origin it must echo exactly that origin, never `*`.
+
+---
+
+## Moving a secret out of the repository
+
+Applies to every fix, automatic or manual, that removes a committed secret and reads it from
+the environment instead: the JWT signing key, connection-string passwords, SMTP/SMS/API keys,
+package-feed keys in `NuGet.Config` or `.npmrc`, mobile signing keystores and their passwords,
+map and push-notification keys.
+
+**What went wrong.** A hardening fix replaced a committed package-feed key in `NuGet.Config`
+with an environment reference. Local builds kept working from the package cache. The pipeline
+had no variable of that name, and the next CI restore failed with `NU1301` until someone found
+out why.
+
+**The same change must carry all four, or it is not done:**
+
+1. **Names.** The exact pipeline (or host / key-vault) variable name and the local environment
+   variable or user-secret name. For .NET configuration keys, the environment form uses `__`
+   for `:` (e.g. `Authentication__JwtBearer__SecurityKey`).
+2. **Developer set-up steps.** How to set the value locally: `dotnet user-secrets set ...`, a
+   user-level environment variable, or a git-ignored local file. Put them in the PR
+   description and in the repository's setup notes (README or the existing build-secrets doc).
+3. **Rotation.** The committed value stays in git history. Flag it for rotation in every
+   environment that used it, and name who must do it (often IT or the platform team). Report
+   presence, length and fingerprint only, never the value.
+4. **Failure warning.** Say plainly what breaks until the variable exists: a restore fails
+   (`NU1301` for a feed key), the app does not start, or sign-in fails. Reviewers must create
+   the pipeline variables **before** merging.
+
+A fix commit without these four items is a broken build waiting for the next pipeline run.
 
 ---
 

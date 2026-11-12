@@ -41,6 +41,22 @@ def _is_reference(value: str) -> bool:
     return v == "" or v.startswith("$(") or v.startswith("${") or v.startswith("#{") or v == KEY
 
 
+# A fix that moves a secret out of the repository must carry these four items in the same
+# change (references/checks.md, "Moving a secret out of the repository"). Without them the next
+# deployment or pipeline run breaks, and the old value stays live.
+MOVED_SECRET_HANDOVER = [
+    "Pipeline / host variable: Authentication__JwtBearer__SecurityKey (double underscore = "
+    "section separator). Create it as a secret variable in every environment BEFORE merging.",
+    "Local developers: dotnet user-secrets set \"Authentication:JwtBearer:SecurityKey\" "
+    "\"<fresh 48-byte random value>\" in the Web.Host project (or the same environment "
+    "variable). Put these steps in the PR description and the repo's setup notes.",
+    "Rotation: the committed value is in git history - flag it for rotation per environment "
+    "(presence and fingerprint only in any report). Rotation signs every user out; schedule it.",
+    "Warning: until the variable exists, the API starts with an empty key and cannot issue or "
+    "validate tokens (sign-in fails). Say so in the PR so reviewers create the variable first.",
+]
+
+
 @register
 class JwtSigningKey(Check):
     id = "jwt-signing-key"
@@ -90,8 +106,10 @@ class JwtSigningKey(Check):
                 Status.FAIL, f"SecurityKey is a literal committed to the repository{weak} "
                 f"[{fp['sha256_12']}, {fp['length']} bytes] - supply it per environment instead",
                 repo.rel(path), fixable=True, anchor=anchor, evidence=Evidence.CODE_ONLY))
+        notes = MOVED_SECRET_HANDOVER if issues else None
         return Finding.from_issues(self.id, issues,
-                                   f"no committed literal {KEY}; the key is supplied per environment")
+                                   f"no committed literal {KEY}; the key is supplied per environment",
+                                   notes=notes)
 
     def fix(self, repo: Repo, finding: Finding) -> list[Edit]:
         """Blank the committed value in tracked appsettings, keeping the key present (so the config
