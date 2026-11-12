@@ -46,7 +46,7 @@ Where no version fits the system, follow `create-integration-tests`' rules by ha
 - `shesha-auto-testing`: the e2e chain: `test-setup`, `create-test`, `run-test`, `run-test-remote`, `create-test-from-devops`. `test-setup` scaffolds Playwright, the plans, the dashboard and Allure from bundled templates, and prompts once for the app URL and admin credentials into `.env`.
 - `shesha-utils`: `create-integration-tests`, `run-integration-tests`, `add-testcontainer-integration-tests` (useful for CI without a shared database), `harden-permissions`, `clean-form-config` and more.
 - `shesha-enterprise`: workflow, document generation, reference numbers.
-- `boxfusion-infra`: App Service and ELMAH log housekeeping.
+- App Service and ELMAH log housekeeping (`delete-elmah-logs`, `delete-app-logs`) moved to the infra team's skills in the Azure DevOps repo `Infra-DevOps`, folder `Claude-Skills`. They're not in this marketplace.
 - **the security instruments** (the three TLC conducts): `auditing-application-security` (catalogue + probes + probe matrix + disable-list), `hardening-shesha-app` (scan/auto-fix the app-level security settings), `shesha-access-control` (permission + specification design/implement + the authorisation-inventory regression guard). Install alongside the others; if absent, TLC degrades to `harden-permissions` + `security-review` and records the gap.
 
 **If they aren't installed:** check this before the start message (SKILL.md, "Start"). If anything is missing, give the user these commands to run in a terminal, and stop:
