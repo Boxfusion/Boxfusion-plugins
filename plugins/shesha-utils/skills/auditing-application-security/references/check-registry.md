@@ -81,7 +81,7 @@
 
 *D5 **derives High** (data_exposure_pii × any_authenticated): a solution with **no** global specification anywhere has no row-level security at all — any authenticated user can read any row. The per-entity "this PII entity lacks a spec" is the same defect at entity granularity (H5, also High). The scoring table governs; an earlier draft said Medium and is superseded (resolves the baseline-vs-code severity flag from the harness worker).*
 
-**root_cause registrations** (determinism-standard §6): `RC-sec-bola` (SEC-A, H1–H4), `RC-sec-pii-logging` (SEC-H), `RC-sec-cors`, `RC-sec-headers`, `RC-sec-committed-secret`, `RC-sec-no-authz`, `RC-sec-no-rowfilter`, `RC-sec-token`, `RC-sec-weak-auth`, `RC-sec-dos`, `RC-sec-starter-surface`, `RC-sec-rt-trust`, `RC-sec-config`, `RC-sec-deps`, `RC-sec-authz-filter`, `RC-sec-orphaned-permission` (SEC-U) — the closed `RC-sec-*` set.
+**root_cause registrations** (determinism-standard §6): `RC-sec-bola` (SEC-A, H1–H4), `RC-sec-pii-logging` (SEC-H), `RC-sec-cors`, `RC-sec-headers`, `RC-sec-committed-secret`, `RC-sec-no-authz`, `RC-sec-no-rowfilter`, `RC-sec-token`, `RC-sec-weak-auth`, `RC-sec-dos`, `RC-sec-starter-surface`, `RC-sec-rt-trust`, `RC-sec-config`, `RC-sec-deps`, `RC-sec-authz-filter`, `RC-sec-orphaned-permission` (SEC-U), `RC-sec-upgrade-drift` (SEC-DRIFT, SEC-RESET, SEC-GONE) — the closed `RC-sec-*` set.
 
 ---
 
@@ -170,6 +170,23 @@
 | SEC-R | Background-job / consumer trusts caller | auth_bypass | any_authenticated | business | **ND** (probe) | auditing |
 | SEC-S | Tenant isolation absent | data_exposure_pii | any_authenticated | popia_special | **ND** | access-control |
 | INV-CHK | Inverse permission-checker (`default: return false` voids all grants) | auth_bypass | any_authenticated | business | DET (grep) + ND (grants-have-effect probe) | auditing detect → access-control fix |
+| SEC-FW | Framework / ABP / Enterprise entity reachable through generic dynamic CRUD (or the generic `Entities` gateway) signed out or as a low-privilege user | data_exposure_pii | anonymous \| low_priv | pii_basic | **ND** (probe: `framework-entity-crud` sweep; DET once the entity-action records are captured) | auditing detect → access-control fix |
+| SEC-ESC | A non-admin role can change an administrator's credentials, sign-in name, recovery email or mobile, security answers, roles or tokens | auth_bypass | low_priv | popia_special | **ND** (live per-role probe on a restorable copy) | auditing detect → access-control fix |
+| SEC-DRIFT | A framework upgrade widened a built-in endpoint's effective requirement (opened the access level, or OR-ed in a permission a non-admin role holds) | auth_bypass | low_priv | business | **ND** (two captures + `drift.py`; DET once both are captured) | auditing detect (upgrade-shesha-stack runs it) → access-control fix |
+| SEC-RESET | A custom permission record does not survive start-up (the framework hard-codes or re-applies it, or the record disappears) | auth_bypass | low_priv | business | **ND** (restart + `drift.py`) | auditing detect → access-control fix |
+| SEC-GONE | A form or coded screen calls an endpoint the running version no longer serves | dos | any_authenticated | none | DET (form/front-end scan vs live surface) + **ND** (admin probe) | auditing detect → forms fix |
+
+*SEC-ESC is rated with `popia_special`: an administrator account reaches every personal
+record, so a takeover is Critical even though the attacker needs a low-privilege login.
+SEC-FW, SEC-ESC, SEC-DRIFT, SEC-RESET and SEC-GONE are specified in
+`references/reaudit-and-upgrade-drift.md`; each was missed by a first audit and found by a
+post-merge re-audit. Root cause for SEC-DRIFT and SEC-RESET: `RC-sec-upgrade-drift`; SEC-FW
+and SEC-ESC: `RC-sec-no-authz`; SEC-GONE: `RC-sec-upgrade-drift`.*
+
+**Coverage record, not a check: `COV-BRANCH`.** A module or product that lives only on a
+branch the audit did not cover is recorded in `_index.json` `inputsMissing` and the report as
+`NOT-ASSESSED(branch-not-audited)` with the branch name. It is never scored and never silently
+dropped (`reaudit-and-upgrade-drift.md` section 1).
 
 **Full detection specs for SEC-F, SEC-G, SEC-J and SEC-N:** `references/security-checks.md` (INPUT / PREDICATE / ANCHOR / EVIDENCE / REMEDIATION / REGRESSION / SEVERITY per check). These were the detection gaps left when the TLC security hardening was flowed back into this skill.
 

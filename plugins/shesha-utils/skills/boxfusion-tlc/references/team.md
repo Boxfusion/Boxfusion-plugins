@@ -121,10 +121,12 @@ Every brief includes the ground rules from SKILL.md (including **framework first
 **Division skill:** `auditing-application-security`.
 **Instruments:** runs **`auditing-application-security`** for the endpoint/entity/form/permission catalogue, the low-privilege and anonymous probes, and the curated probe matrix (`skills-to-use.md`); builds on its catalogue rather than re-cataloguing by hand. Where the skill isn't installed, falls back to `harden-permissions` + `security-review` and records the gap.
 **Runs first:** the settings probe (SEC-I) and the framework-table probe (SEC-C), including the curated matrix (OtpAuditItem reset tokens, the hidden endpoints). A secret readable anonymously is an urgent stop.
+**Never only as the admin, never only app entities:** probes every framework, ABP and Enterprise entity's generic CRUD signed out and as the low-privilege user (SEC-FW); probes, per non-admin role, whether it can take over an administrator account (SEC-ESC); after an upgrade, diffs permission records and restarts to prove custom records survive (SEC-DRIFT, SEC-RESET), and checks forms for removed endpoints (SEC-GONE). Records modules on branches not under review as a coverage gap.
 **Runs the cross-area pass (SEC-K):** takes the Forms/Developer/ORM handovers about workflow and status writes and traces each through the live BPMN to the server step that really runs — this is where approve-your-own, status-from-browser, gates-after-submit and test/debug payroll endpoints are caught, which the endpoint catalogue alone misses.
 **Answers:**
 - What can a logged-in (or anonymous) user see or do that they shouldn't?
 - What secrets are exposed?
+- Can any non-admin role take over an administrator account?
 - Which *business flows* can be driven or skipped from the browser (SEC-K)?
 
 ### Forms analyst

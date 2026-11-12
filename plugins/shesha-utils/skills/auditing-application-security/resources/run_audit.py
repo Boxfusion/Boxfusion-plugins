@@ -194,6 +194,18 @@ def build_steps():
              [os.path.join("@run", "catalog", "_index.json")],
              requires=["crossref.json", "source_scan.json"],
              always=True, extra=catalog_extra),
+        # Extend the matrix from this catalogue - the app's own surface plus the
+        # framework-entity CRUD sweep - then probe again and rebuild so the verdicts land.
+        # Skipping this left built-in identity and bank-account entities unprobed on a first
+        # audit; an anonymous user-account list was only found by the re-audit.
+        Step("extend-matrix", "extend_probe_matrix.py", [],
+             always=True, extra=lambda a, ctx: ["--run-dir", ctx["run_dir"], "--prune"]),
+        Step("probe-extended", "probe.py", ["probe-results.json"],
+             requires=["swagger.json"], needs_backend=True, always=True,
+             extra=lowpriv_extra),
+        Step("catalogue-extended", "build_catalogs.py",
+             [os.path.join("@run", "catalog", "_index.json")],
+             always=True, extra=catalog_extra),
         # phase 2
         Step("catalogue-with-overrides", "build_catalogs.py",
              [os.path.join("@run", "catalog", "_index.json")],

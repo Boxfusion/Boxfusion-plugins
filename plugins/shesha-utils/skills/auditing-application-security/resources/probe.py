@@ -37,6 +37,7 @@ the same 404 (identical => not an authorization decision at all).
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -84,7 +85,8 @@ def normalise(path):
     return path.split("?")[0].rstrip("/").lower()
 
 
-def run_probe(base, probe, token, surface, records=None, principal="anonymous"):
+def run_probe(base, probe, token, surface, records=None, principal="anonymous",
+              entity_records=None):
     url = base.rstrip("/") + probe["path"]
     ct = probe.get("contentType")
     body = probe.get("body")
@@ -98,6 +100,8 @@ def run_probe(base, probe, token, surface, records=None, principal="anonymous"):
         status, raw = request(probe["method"], url, token=token)
     in_surface = normalise(probe["path"]) in surface
     rec = lookup_record(probe["path"], records) if records else None
+    if rec is None:
+        rec = lookup_entity_record(probe["path"], entity_records)
     rec_access = rec.get("actualAccess") if rec else None
     return {
         "id": probe["id"],
@@ -119,6 +123,41 @@ def run_probe(base, probe, token, surface, records=None, principal="anonymous"):
         "bodyExcerpt": raw[:600].decode("utf-8", "replace") if status == 200 else
                        raw[:300].decode("utf-8", "replace"),
     }
+
+
+DYN_CRUD_RE = re.compile(r"^/api/dynamic/[^/]+/([^/]+)/crud/([^/?]+)")
+# Dynamic CRUD route action -> Shesha.Entity.Action record names, most specific first.
+CRUD_RECORD_NAMES = {"getall": ("getall", "list", "get"), "get": ("get",),
+                     "create": ("create",), "update": ("update",), "delete": ("delete",)}
+
+
+def index_entity_actions(records):
+    """Index Shesha.Entity.Action records by (entity short name, action), lowercased.
+
+    `Abp.Authorization.Users.UserAccount@Get` -> ("useraccount", "get"). Without this, a
+    framework entity switched off with Disable answers 404 on its dynamic CRUD route and
+    is reported NOT-FOUND (a finding) instead of DISABLED (a pass) - which buried the real
+    open framework entities under dozens of false rows in a re-audit.
+    """
+    idx = {}
+    for rec in records:
+        obj = rec.get("object") or ""
+        if "@" in obj:
+            cls, act = obj.rsplit("@", 1)
+            idx[(cls.split(".")[-1].lower(), act.lower())] = rec
+    return idx
+
+
+def lookup_entity_record(path, entity_records):
+    m = DYN_CRUD_RE.match(normalise(path))
+    if not m or not entity_records:
+        return None
+    entity, action = m.group(1), m.group(2)
+    for name in CRUD_RECORD_NAMES.get(action, (action,)):
+        rec = entity_records.get((entity, name))
+        if rec:
+            return rec
+    return None
 
 
 def lookup_record(path, records):
@@ -252,18 +291,30 @@ def main():
               "cannot be told apart from an explicit Disable; those show as NOT-FOUND.",
               file=sys.stderr)
 
+    # Shesha.Entity.Action records do the same for /api/dynamic/<ns>/<Entity>/Crud/<Action>.
+    entity_records = None
+    ent_path = os.path.join(cache, "po-shesha-entity-action.json")
+    if os.path.isfile(ent_path) and os.path.getsize(ent_path) > 0:
+        try:
+            from shesha_audit import unwrap
+            entity_records = index_entity_actions(unwrap(read_json(ent_path)))
+            print("Loaded %d Shesha.Entity.Action records for dynamic-CRUD 404 "
+                  "disambiguation." % len(entity_records))
+        except Exception:
+            entity_records = None
+
     results = []
     for probe in probes:
         auth_mode = probe.get("auth", "anonymous")
         if auth_mode in ("anonymous", "both"):
             results.append(run_probe(args.url, probe, None, surface, records,
-                                     principal="anonymous"))
+                                     principal="anonymous", entity_records=entity_records))
         if auth_mode in ("authenticated", "both", "lowpriv") and token:
             results.append(run_probe(args.url, probe, token, surface, records,
-                                     principal="admin"))
+                                     principal="admin", entity_records=entity_records))
         if auth_mode in ("both", "lowpriv", "authenticated") and low_token:
             results.append(run_probe(args.url, probe, low_token, surface, records,
-                                     principal="lowpriv"))
+                                     principal="lowpriv", entity_records=entity_records))
 
     order = {"OPEN": 0, "REACHED": 1, "NOT-FOUND": 2, "INCONCLUSIVE": 3,
              "JUDGEMENT": 4, "UNREACHABLE": 5}

@@ -10,6 +10,7 @@
 - [npm install fails with ERR_INVALID_ARG_TYPE](#npm-install-fails-with-err_invalid_arg_type)
 - [The committed lockfile does not match package.json](#the-committed-lockfile-does-not-match-packagejson)
 - [The build modifies tracked XML doc files](#the-build-modifies-tracked-xml-doc-files)
+- [Pipeline restore fails with NU1301 after a feed key was moved out of NuGet.Config](#pipeline-restore-fails-with-nu1301-after-a-feed-key-was-moved-out-of-nugetconfig)
 
 ## Restore cannot authenticate to the private feed
 
@@ -217,3 +218,28 @@ Some projects commit their generated `<DocumentationFile>` output (e.g.
 `Web.Core.xml`). Building regenerates it with docs for code that was already
 there. That change is unrelated to the upgrade -- revert it before committing
 (`git checkout -- <file>.xml`) so the PR stays focused.
+
+## Pipeline restore fails with NU1301 after a feed key was moved out of NuGet.Config
+
+**Symptom:** after a security fix replaced a committed feed key or password in
+`NuGet.Config` with an environment reference (`%FEED_KEY%`), the CI restore
+fails with `NU1301: Unable to load the service index for source ...`. Locally
+it still works, because developers' machines have the package cache or the
+variable.
+
+**Cause:** the pipeline has no variable of that name, so NuGet sends an empty
+credential.
+
+**Fix:** create the variable as a **secret** pipeline variable (or variable
+group entry) with exactly the name the config references, and map it into the
+restore step's environment if the pipeline does not do so automatically. Then
+re-run the pipeline. The same change that moved the key must also say:
+
+- the pipeline variable name and the local environment variable name;
+- how developers set it locally (user-level environment variable, never a
+  committed file);
+- that the old committed value is in git history and must be **rotated**;
+- that builds fail with NU1301 until the variable exists in every pipeline that
+  restores.
+
+See `hardening-shesha-app` → "Moving a secret out of the repository".

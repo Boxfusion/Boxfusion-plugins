@@ -1,6 +1,6 @@
 ---
 name: shesha-access-control
-description: Designs, documents, and implements access control for Shesha framework applications. Covers discovery of existing roles/permissions, access control design documentation, permission and role creation, API-level authorization, and data-level filtering via global specifications. Use when the user asks to design, implement, audit, review, or document access control, permissions, roles, authorization, security specifications, or data-level filtering in a Shesha project. Also use when implementing features from a PRD or specification that require new or modified roles, permissions, or authorization logic.
+description: Designs, documents, and implements access control for Shesha framework applications. Covers discovery of existing roles/permissions, access control design documentation, permission and role creation, API-level authorization, data-level filtering via global specifications, locking built-in framework entities, and guarding administrator credentials against non-admin roles. Use when the user asks to design, implement, audit, review, or document access control, permissions, roles, authorization, security specifications, or data-level filtering in a Shesha project. Also use when implementing features from a PRD or specification that require new or modified roles, permissions, or authorization logic.
 ---
 
 # Shesha Access Control Designer & Implementer
@@ -54,6 +54,9 @@ registry or the scoring key — those stay in the hub, so two runs stay byte-ide
 | **SEC-L** | Property-level authz / over-posting | checks.md § SEC-L |
 | **SEC-S** | Tenant isolation absent | checks.md § SEC-S |
 | **INV-CHK** | Inverse permission-checker (`default: return false` voids all grants) | checks.md § INV-CHK; SKILL § Key Rules (custom-checker `NotImplementedException`) |
+| **SEC-FW** | Framework / ABP / Enterprise entity open through generic dynamic CRUD | checks.md § SEC-FW — Disable unused, admin-only the rest, by migration |
+| **SEC-ESC** | A non-admin role can change an administrator's credentials or recovery channels | checks.md § SEC-ESC — drop the grant + admin-credential guard |
+| **SEC-DRIFT / SEC-RESET** | Upgrade widened a framework rule / a custom record does not survive start-up | checks.md § SEC-DRIFT — re-design against the new rule, pin it with a test |
 
 Every row above is verified by an invariant of the authorisation-inventory test, which emits back
 into the shared `findings.json` tuple shape so a re-audit converges. The decision procedure that
@@ -172,6 +175,18 @@ Before designing or implementing, always understand what exists:
 - List all domain entities and their relationships
 - Identify parent-child entity hierarchies
 - Map entity relationships (which entities reference which)
+
+**2c-bis. Framework entities, admin credentials and upgrade drift** (each was missed by a first
+audit and found after merge — `../auditing-application-security/references/reaudit-and-upgrade-drift.md`):
+- List the **framework, ABP and Enterprise** entities with live generic CRUD routes and their
+  effective access, not only the app's. With the default endpoint access setting at anonymous,
+  "Inherited" means anyone. Design each as Disable (unused) or admin-only (SEC-FW).
+- List every endpoint that can change a user's password, sign-in name, recovery email or
+  mobile, security answers, roles or tokens — framework **and** app (staff/person sync
+  services count) — and which non-admin roles reach each (SEC-ESC).
+- If the framework was upgraded, read the `drift.py` result: an upgrade can OR a second
+  permission into a built-in rule, rename grants, or hard-code a record your migration set
+  (SEC-DRIFT, SEC-RESET). Design against the rules as they are **after** start-up.
 
 **2d. Present findings:**
 Report a summary of:
@@ -444,6 +459,9 @@ by hand; script it. See [reference/implementation-patterns.md](reference/impleme
 - [ ] Any entity/endpoint disabled entirely (not just access-restricted) was confirmed unused with the user first, and verified afterward that the disabling change (EntityConfig/PermissionedObject) didn't corrupt an unrelated field (see api-reference.md § Common Pitfalls #3, #8)
 - [ ] `Get`/`GetAll` `PermissionedObject` nodes were left at Inherited (or otherwise verified to have a non-empty `permissions` list if deliberately restricted) — not accidentally gated to a permission the row-level specification's owner-tier callers won't hold
 - [ ] After a module-wide sweep (4i), every entity's fix was re-verified against a fresh `PermissionedObject.GetAll`, not assumed from the request payload alone
+- [ ] Framework / ABP / Enterprise entities were included: none is reachable signed out or by a role-less user through generic CRUD (SEC-FW)
+- [ ] No non-admin role can change an administrator's credentials, recovery channels, roles or tokens — proven by a per-role live probe on an isolated copy, and guarded in code (SEC-ESC)
+- [ ] **Restarted the app and re-fetched the records**: every custom permission record survived start-up (twice if a framework upgrade is in the change); `drift.py` first-start vs restart shows no `RESET` or `RECORD-GONE` (SEC-RESET)
 
 **5b. Identify test scenarios:**
 For each permission, outline test cases:

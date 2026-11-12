@@ -43,3 +43,27 @@ length**: 32 alphanumeric characters is ~165 bits and is not brute-forceable, so
 it as weak — a committed key of adequate strength is a *disclosure* finding whose fix is
 rotation. Read rate-limiting **configuration**; never run a brute-force burst to prove its
 absence.
+
+## The framework-entity sweep
+
+`extend_probe_matrix.py` also generates the `framework-entity-crud` group: for every entity a
+package owns (Shesha, ABP, Enterprise, other modules) with a live dynamic CRUD route, an
+anonymous and a low-privilege `GetAll`; for the built-in identity, financial, settings and
+audit entities, `Update` and `Delete` against an id that cannot exist (they change nothing,
+so they run by default) and `Create` (disabled; only with `--include-writes` on a restorable
+copy). It has its own cap (`--framework-max`), so the app surface cannot crowd it out.
+
+Why: name-based sensitivity does not rate a user-account or bank-account entity "HIGH", and an
+app-scoped catalogue never lists framework entities, so neither older path probed them. One
+re-audit found the built-in user-account list open to signed-out callers that way.
+
+`probe.py` reads `po-shesha-entity-action.json` so a switched-off entity reports `DISABLED`
+rather than `NOT-FOUND`. Interpretation and the fix template:
+`reaudit-and-upgrade-drift.md` §2. `verify_run.py` fails the run if no probe ran signed out,
+none ran as the low-privilege user, or the sweep did not run.
+
+## Admin takeover is a per-role probe
+
+A zero-permission user cannot show that a *specific* role can change an administrator's
+credentials. That needs one synthetic login per non-admin role, a synthetic administrator as
+the target, and a restorable copy: `reaudit-and-upgrade-drift.md` §3 (check SEC-ESC).

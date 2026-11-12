@@ -15,6 +15,21 @@ This closes that loop. From the catalogue it generates:
   * an anonymous probe for every endpoint whose effective access resolves to AllowAnonymous
   * a low-privilege probe for every sensitive endpoint open to any authenticated user
   * an anonymous and a low-privilege GetAll for every sensitive entity with a live read route
+  * the framework-entity sweep (group `framework-entity-crud`): for EVERY entity owned by a
+    package (Shesha, ABP, Enterprise, other modules) that has a live dynamic CRUD route, an
+    anonymous and a low-privilege GetAll, whatever its name-based sensitivity; and for the
+    built-in identity, financial, settings and audit entities (PRIORITY_FRAMEWORK_ENTITIES)
+    Create, Update and Delete as well. It has its own budget (--framework-max), so the
+    app-surface cap can never crowd it out. GetAll, and Update/Delete against an id that cannot exist, run by default;
+    Create is recorded disabled (see Safety)
+
+Why the sweep exists. A first audit probed only app entities and only as the admin. The
+generic `UserAccount` CRUD then listed every user account to a signed-out caller, and an
+anonymous `Crud/Create` succeeded; Enterprise `BankAccount` and `OrganisationBankAccount`
+behaved the same. The framework's "Inherited" record resolved to anonymous because the
+default endpoint access setting was anonymous. A name heuristic does not rate `BankAccount`
+or `UserAccount` "HIGH", and an app-scoped catalogue never lists them, so neither path
+generated a probe. Framework entities are this application's exposure too.
 
 Safety. A generated probe is READ-ONLY unless you ask otherwise: an endpoint whose action
 changes state gets a probe with `enabled: false` and a note, because "probe every unprotected
@@ -54,6 +69,34 @@ WRITE_PREFIXES = ("create", "update", "delete", "remove", "save", "submit", "app
                   "replace", "sync", "close", "reopen", "amend", "finalize", "finalise",
                   "generate", "link", "accept", "invite", "reassign", "resubmit", "resume",
                   "suspend", "process", "upload", "clear", "merge", "reorder")
+
+
+# Framework / ABP / Enterprise entities that hold identity, credentials, money, settings or
+# history. Probed first and rated CRITICAL if a signed-out caller reaches them. Short class
+# names, lowercased. Extend this list when a re-audit finds another.
+PRIORITY_FRAMEWORK_ENTITIES = (
+    "useraccount", "user", "userrole", "usertoken", "userlogin", "userclaim",
+    "userpermissionsetting", "rolepermissionsetting", "roleclaim", "userloginattempt",
+    "sharole", "sharoleappointedperson", "sharolepermission", "person",
+    "bankaccount", "organisationbankaccount", "financialaccount", "banktransaction",
+    "account", "accountinvitation", "setting", "settingvalue", "settingconfiguration",
+    "auditlog", "entitychangeauditlog", "entityhistoryitem", "entitypropertychange",
+    "filetemplateconfiguration", "storedfile", "storedfileversion", "note",
+    "notificationmessage", "notificationmessageattachment", "otpauditem",
+)
+
+# Dynamic CRUD action -> (HTTP verb, query, body, safe to send by default).
+# Update and Delete target an id that cannot exist, so they change nothing and run by
+# default. Create would insert a row, so it is generated disabled unless --include-writes.
+# An all-zero id never matches a real record: a 404 means the request got PAST authorization
+# (NOT-FOUND, a finding) and a 401/403 means it was refused.
+ZERO_ID = "00000000-0000-0000-0000-000000000000"
+FRAMEWORK_CRUD = (
+    ("GetAll", "GET", "?maxResultCount=1", None, True),
+    ("Create", "POST", "", {}, False),
+    ("Update", "PUT", "", {"id": ZERO_ID}, True),
+    ("Delete", "DELETE", "?id=" + ZERO_ID, None, True),
+)
 
 
 def is_read_only(action, methods):
@@ -223,12 +266,74 @@ def generate(docs, args):
                                       "entity": entity, "readOnly": True},
                 })
                 stats["entity-read"] += 1
+
+    if args.framework_entities:
+        out.extend(framework_entity_sweep(docs, args, stats))
     return out, stats
+
+
+def framework_entity_sweep(docs, args, stats):
+    """Every package-owned entity with a live dynamic CRUD route, probed signed out and as
+    the low-privilege user, for all four CRUD verbs. Priority entities first."""
+    rows = []
+    for pkg, kinds in sorted(docs.items()):
+        for row in (kinds.get("entities") or {}).get("entities", []):
+            if row.get("owner") != "package" or not row.get("CRUDEndpoints"):
+                continue
+            short = (row.get("className") or row["entity"].rsplit(".", 1)[-1]).lower()
+            rows.append((0 if short in PRIORITY_FRAMEWORK_ENTITIES else 1,
+                         row["entity"], pkg, short, row))
+    rows.sort(key=lambda r: (r[0], r[1]))
+
+    out = []
+    for prio, entity, pkg, short, row in rows:
+        actions = row.get("crudActions") or {}
+        lower = {k.lower(): v for k, v in actions.items()}
+        access = row["authorizationRules"].get("effectiveAccessName")
+        for action, verb, suffix, body, safe in FRAMEWORK_CRUD:
+            if prio == 1 and action != "GetAll":
+                # Non-priority entities: the list read answers "is it open at all". The
+                # write verbs are swept for the priority entities, where a hit is critical.
+                continue
+            act = lower.get(action.lower())
+            if not act or "{" in act["url"]:
+                continue
+            for auth in ("anonymous", "lowpriv"):
+                if auth == "lowpriv" and not args.lowpriv_probes:
+                    continue
+                sev = ("CRITICAL" if auth == "anonymous" and prio == 0 else
+                       "HIGH" if auth == "anonymous" or prio == 0 else "MEDIUM")
+                probe = {
+                    "id": "fw-ent-%s-%s-%s" % (auth, action.lower(), slug(entity)),
+                    "group": "framework-entity-crud",
+                    "method": verb,
+                    "path": act["url"] + suffix,
+                    "auth": auth,
+                    "expect": "denied",
+                    "severityIfOpen": sev,
+                    "description": "Framework entity %s %s via generic CRUD (%s; record "
+                                   "resolves to %s)" % (entity, action, pkg, access),
+                    "note": "OPEN/REACHED/NOT-FOUND here means the generic CRUD route let "
+                            "the caller past authorization. Recommend Disable if no form or "
+                            "screen uses the entity, otherwise an admin-only permission. "
+                            "For GetAll, quote the field names returned and the row count.",
+                    "enabled": safe or args.include_writes,
+                    "generatedFrom": {"marker": MARKER, "package": pkg, "reason":
+                                      "framework-entity sweep", "entity": entity,
+                                      "priority": prio == 0, "readOnly": safe},
+                }
+                if body is not None:
+                    probe["body"] = body
+                out.append(probe)
+                stats["framework-entity-" + ("safe" if safe else "create-disabled"
+                                             if not args.include_writes else "create")] += 1
+    return out
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--repo-root", default=".", help="accepted for run_audit.py; unused")
     ap.add_argument("--matrix", default=os.path.join(HERE, "probe_matrix.json"))
     ap.add_argument("--prune", action="store_true",
                     help="drop previously generated probes first, then regenerate")
@@ -241,9 +346,17 @@ def main():
                     help="cap low-privilege probes per package. A few per package convert "
                          "the derived claim into an observed one; hundreds do not add "
                          "anything a reviewer will read")
+    ap.add_argument("--framework-max", type=int, default=600,
+                    help="separate cap for the framework-entity sweep (priority entities "
+                         "are generated first, so a cap only trims the long tail)")
     ap.add_argument("--max", type=int, default=300,
                     help="stop after this many new probes; the framework matrix is 73, and a "
                          "matrix of thousands stops being reviewable")
+    ap.add_argument("--no-framework-entities", dest="framework_entities",
+                    action="store_false",
+                    help="skip the framework-entity CRUD sweep. Do not use it on a first "
+                         "audit or a post-upgrade re-audit - it is the sweep that finds "
+                         "built-in identity and financial entities open to the public")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -265,18 +378,22 @@ def main():
     have = {probe_key(p["method"], p["path"], p.get("auth")) for p in existing}
     candidates, stats = generate(docs, args)
 
-    added, duplicate = [], 0
+    added, duplicate, budget = [], 0, collections.Counter()
     for probe in candidates:
         key = probe_key(probe["method"], probe["path"], probe.get("auth"))
         if key in have:
             duplicate += 1
             continue
+        sweep = probe["group"] == "framework-entity-crud"
+        limit = args.framework_max if sweep else args.max
+        if budget[sweep] >= limit:
+            stats["over-cap-" + ("framework" if sweep else "app")] += 1
+            continue
+        budget[sweep] += 1
         have.add(key)
         if probe.get("body") is None:
             probe.pop("body", None)
         added.append(probe)
-        if len(added) >= args.max:
-            break
 
     print("catalogue          %s" % args.run_dir)
     print("matrix             %s (%d existing probe(s))"
@@ -286,7 +403,8 @@ def main():
     print("candidates         %d" % len(candidates))
     print("already covered    %d" % duplicate)
     print("new                %d%s"
-          % (len(added), "  (capped by --max)" if len(added) >= args.max else ""))
+          % (len(added), "  (some capped - see over-cap-*)"
+             if any(k.startswith("over-cap") for k in stats) else ""))
     for key in sorted(k for k in stats if not k.startswith("lowpriv-")):
         print("   %-32s %d" % (key, stats[key]))
     capped = sum(v for k, v in stats.items() if k.startswith("lowpriv-"))

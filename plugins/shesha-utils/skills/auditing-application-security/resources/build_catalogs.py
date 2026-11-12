@@ -1567,8 +1567,16 @@ def build_other_findings(d, proj_modules, frontends):
         if r["verdict"] not in ("OPEN", "REACHED", "NOT-FOUND", "INCONCLUSIVE", "JUDGEMENT"):
             continue
         pkg = "_probe-findings"
-        add(pkg, "anonymous-access" if r["principal"] == "anonymous"
-            else "authenticated-access",
+        category = ("anonymous-access" if r["principal"] == "anonymous"
+                    else "authenticated-access")
+        meta = None
+        if r.get("group") == "framework-entity-crud":
+            # SEC-FW: carry the canonical id so the row reaches findings.json and the
+            # access-control fix template (reaudit-and-upgrade-drift.md section 2).
+            meta = finding_meta("SEC-FW-framework-entity",
+                                "http:%s %s" % (r["method"], r["path"].split("?")[0]),
+                                "REPRODUCED", category=category)
+        add(pkg, category,
             "%s %s -> %s as %s" % (r["method"], r["path"], r["verdict"], r["principal"]),
             r.get("severityIfOpen") or "MEDIUM",
             ["HTTP %d, record access %s, hardcoded=%s"
@@ -1579,7 +1587,7 @@ def build_other_findings(d, proj_modules, frontends):
             "content type, and check the PermissionedObject record."
             if r["verdict"] in ("NOT-FOUND", "INCONCLUSIVE") else
             "Set an explicit access level on the PermissionedObject record, or disable it.",
-            status="FAIL" if r["verdict"] in ("OPEN", "REACHED") else "REVIEW")
+            status="FAIL" if r["verdict"] in ("OPEN", "REACHED") else "REVIEW", meta=meta)
 
     for f in ((d["objectauth"] or {}).get("findings") or []):
         if f.get("verdict") not in ("EXPOSED", "UNSCOPED"):
