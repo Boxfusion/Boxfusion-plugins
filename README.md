@@ -252,10 +252,12 @@ We welcome contributions from the community! Here's how you can help:
             ├── add-analyzers/
             ├── add-testcontainer-integration-tests/
             ├── clean-form-config/
+            ├── configure-chatbot-flows/
             ├── create-integration-tests/
             ├── document-shaconfigs/
             ├── harden-permissions/
             ├── link-backend-module-debug/
+            ├── migrate-chatbot-to-flows/
             ├── run-integration-tests/
             ├── shesha-project-setup/
             ├── shesha-skill-creator/
