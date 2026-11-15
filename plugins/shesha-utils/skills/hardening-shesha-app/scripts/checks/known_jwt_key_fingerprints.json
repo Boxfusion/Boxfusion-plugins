@@ -1,0 +1,9 @@
+{
+  "_comment": "Known starter/template JWT signing keys, stored as sha256:<12> fingerprints ONLY (determinism-standard §10: hashes, never keys). A committed SecurityKey whose fingerprint matches one of these is identical across every system generated from that template, so any one repo's reader can forge tokens for all of them. Seed a new entry by fingerprinting the template value once and discarding the value. Compute: printf '%s' '<key>' | sha256sum (first 12 hex, prefixed 'sha256:').",
+  "fingerprints": [
+    {
+      "sha256_12": "sha256:fc4f4ac27fcf",
+      "source": "ASP.NET Boilerplate / ABP module-zero template default Authentication:JwtBearer:SecurityKey"
+    }
+  ]
+}

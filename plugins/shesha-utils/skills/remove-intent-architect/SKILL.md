@@ -1,6 +1,6 @@
 ---
 name: remove-intent-architect
-description: Scrubs all Intent Architect artifacts and references from a Shesha (or any .NET) project. Deletes the intent/ metadata folder, Intent.Modules/ folder and .isln files, removes Intent.* NuGet package references, strips Intent using-statements, [IntentManaged(...)] attributes and [assembly: IntentTemplate/DefaultIntentManaged(...)] statements, regenerates packages.lock.json files, and removes Intent CLI steps, variables and credential groups from Azure DevOps pipelines. Use when the user asks to remove, scrub, strip, clean up, or decouple from Intent Architect, the intent folder, the Intent CLI, or Intent.RoslynWeaver dependencies.
+description: "Scrubs all Intent Architect artifacts and references from a Shesha (or any .NET) project. Deletes the intent/ metadata folder, Intent.Modules/ folder and .isln files, removes Intent.* NuGet package references, strips Intent using-statements, [IntentManaged(...)] attributes and [assembly: IntentTemplate/DefaultIntentManaged(...)] statements, regenerates packages.lock.json files, and removes Intent CLI steps, variables and credential groups from Azure DevOps pipelines. Use when the user asks to remove, scrub, strip, clean up, or decouple from Intent Architect, the intent folder, the Intent CLI, or Intent.RoslynWeaver dependencies."
 ---
 
 # Remove Intent Architect

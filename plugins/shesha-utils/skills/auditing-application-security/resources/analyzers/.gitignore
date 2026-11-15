@@ -1,0 +1,7 @@
+# Build output — never committed (determinism-standard §8: findings are emitted at run time)
+bin/
+obj/
+*.user
+
+# Driver run artefacts (findings fragments are written into the audit run dir, not here)
+runs/

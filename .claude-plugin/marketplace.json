@@ -12,7 +12,7 @@
     {
       "name": "shesha-utils",
       "source": "./plugins/shesha-utils",
-      "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, permission hardening, backend debug linking, stack upgrades, ShaConfig documentation, Claude logger setup, and skill authoring."
+      "description": "Utility skills for Shesha development: project setup, analyzers, integration tests, form config cleanup, backend debug linking, stack upgrades, ShaConfig documentation, Claude logger setup, and skill authoring. Also the home of the TLC whole-system review — the boxfusion-tlc conductor skill plus its per-area review divisions (code, SQL, ORM, forms, operations) and the security trio (auditing, hardening, access-control) that share one determinism contract (tlc-core)."
     },
     {
       "name": "shesha-auto-testing",
