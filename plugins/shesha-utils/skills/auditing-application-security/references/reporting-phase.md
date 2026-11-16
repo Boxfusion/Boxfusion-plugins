@@ -91,9 +91,23 @@ not by the data, so every run's workbook has the same columns in the same places
 columns no row populates. Change the order in `LEAD` in the
 script, not by hand in the output.
 
-It reads only the catalogue, so it agrees with the reports by construction. Reviewers annotate
-the workbook directly; if it already exists and differs from what would be written, the old
-copy is kept as `.bak-<stamp>.xlsx` rather than overwritten.
+It reads only the catalogue, so it agrees with the reports by construction. If it already
+exists and differs from what would be written, the old copy is kept as `.bak-<stamp>.xlsx`
+rather than overwritten.
+
+**Developer Comments.** Every sheet has a "Developer Comments" column straight after the
+leading columns, with a yellow header. It is the one column developers type into: the team that
+owns a row records its decision there ("fixed in PR 123", "accepted - public by design",
+"raised with the framework team"). The exporter carries comments forward on its own: from the
+previous run's workbook, from any `--comments-from <xlsx>`, and from the target itself when it
+is re-exported (later sources win). Rows are matched on Module plus the object's key, and
+findings on `checkId@anchor` or their title, so a comment survives run-local ids being
+renumbered. A comment whose object no longer exists is printed as a warning and stays in the
+source workbook. Pass `--no-previous-comments` to start a run with a clean column.
+
+When you hand the workbook over, tell the user the column is there for the owning developers,
+and how many comments were carried forward from the previous run. The next access-control pass
+reads these comments before it changes anything (see `shesha-access-control`, Step 0).
 
 Finish by printing, to the user: the package count, the per-package urgent counts, the top
 five, the confidence caveats, the path to the run directory, and the path to the workbook.

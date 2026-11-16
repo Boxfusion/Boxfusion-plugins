@@ -16,8 +16,19 @@ A field the catalogue holds but the schema does not declare is appended with a w
 It reads the catalogue only, so run it after the review-pass rebuild - the workbook then shows
 the same dispositions as the reports. It is the last step of phase 2 in `run_audit.py`.
 
-Reviewers annotate the workbook by hand. If the target already exists and differs from what
-would be written, it is kept as `<name>.bak-YYMMDD-HHMMSS.xlsx` rather than overwritten.
+Every worksheet carries an empty "Developer Comments" column straight after the leading
+columns, for the developers who own the fix to record their decision ("fixed in PR 123",
+"accepted - public by design", ...). It is the only column meant to be typed into. Comments are
+carried forward: every non-empty comment in the previous run's workbook, in any
+`--comments-from <xlsx>`, and in the target itself when it already exists is copied onto the
+matching row of the new workbook (later sources win, so the target's own edits win). Rows are
+matched on Module plus the object's key - path, entity, role, permission, file or form name,
+and for findings `checkId@anchor` (the title when a finding has none) - so a comment follows its
+object even when run-local ids change. A comment whose object is gone is reported, not
+silently dropped.
+
+If the target already exists and differs from what would be written, it is kept as
+`<name>.bak-YYMMDD-HHMMSS.xlsx` rather than overwritten.
 
 Stdlib only: the .xlsx is written directly as SpreadsheetML, like the rest of these scripts.
 """
@@ -106,6 +117,17 @@ _check_lead()
 # Columns kept in view while scrolling right: Module plus the object's name.
 FREEZE_COLS = 2
 
+# The one column reviewers type into. Not a catalogue field: it is added after the leading
+# columns of every sheet and filled only from comments carried over from earlier workbooks.
+COMMENTS = "Developer Comments"
+# What identifies a row across runs, after Module. Findings fall back to their title when they
+# have no checkId/anchor, because run-local ids (ANO-1, AUT-22) are renumbered every run.
+KEY = {
+    "Findings": ("checkId", "anchor"), "Entities": ("entity",), "Roles": ("role",),
+    "Permissions": ("permission",), "Custom Forms": ("file",), "Configured Forms": ("name",),
+    "Endpoints": ("path",),
+}
+
 
 # ---------------------------------------------------------------------------- rows
 
@@ -172,7 +194,7 @@ def columns_for(sheet, rows, warn=False):
     """Fixed columns from the schema; the rows only matter if they hold something undeclared."""
     declared = [c for c in columns(KIND_OF_SHEET[sheet], DROP) if c != "module"]
     lead = LEAD[sheet]
-    fixed = lead + [c for c in declared if c not in lead] + ["Source File"]
+    fixed = lead + [COMMENTS] + [c for c in declared if c not in lead] + ["Source File"]
     extra = []
     for row in rows:
         for k in row:
@@ -182,6 +204,96 @@ def columns_for(sheet, rows, warn=False):
         print("WARNING: %s holds undeclared field(s) %s - appended; declare them in "
               "catalog_schema.py" % (sheet, ", ".join(extra)), file=sys.stderr)
     return fixed[:-1] + extra + fixed[-1:]
+
+
+def row_key(sheet, row):
+    """(sheet, module, key) for a flattened row, or None when the row has no key."""
+    parts = [row.get(c) for c in KEY[sheet]]
+    if sheet == "Findings" and not all(parts):
+        parts = [row.get("title")]
+    if not all(parts):
+        return None
+    return (sheet, str(row.get("Module") or ""), "@".join(str(p) for p in parts))
+
+
+def apply_comments(sheets, comments):
+    """Copy carried-over comments onto matching rows. Returns the comments that matched no
+    row, so the caller can report them."""
+    left = dict(comments)
+    for sheet, rows in sheets.items():
+        for row in rows:
+            key = row_key(sheet, row)
+            if key in left:
+                row[COMMENTS] = left.pop(key)
+    return left
+
+
+# ---------------------------------------------------------------------------- reading back
+
+_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+       "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+       "rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+
+
+def _col_index(ref):
+    n = 0
+    for ch in re.match(r"[A-Z]+", ref).group(0):
+        n = n * 26 + ord(ch) - 64
+    return n
+
+
+def read_sheets(path):
+    """{sheet name: [row dict keyed by header]} from an .xlsx - one this script wrote or the
+    same file after Excel saved it (shared strings, rich text, typed cells). Stdlib only."""
+    import xml.etree.ElementTree as ET
+    with zipfile.ZipFile(path) as z:
+        names = set(z.namelist())
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", _NS):
+                shared.append("".join(t.text or "" for t in si.iter("{%s}t" % _NS["m"])))
+        rels = {r.get("Id"): r.get("Target") for r in
+                ET.fromstring(z.read("xl/_rels/workbook.xml.rels")).findall("rel:Relationship", _NS)}
+        out = {}
+        for s in ET.fromstring(z.read("xl/workbook.xml")).find("m:sheets", _NS):
+            target = rels[s.get("{%s}id" % _NS["r"])].lstrip("/")
+            target = target if target.startswith("xl/") else "xl/" + target
+            rows = []
+            for r in ET.fromstring(z.read(target)).iter("{%s}row" % _NS["m"]):
+                cells = {}
+                for c in r.findall("m:c", _NS):
+                    t, v = c.get("t"), c.find("m:v", _NS)
+                    if t == "inlineStr":
+                        val = "".join(x.text or "" for x in c.iter("{%s}t" % _NS["m"]))
+                    elif v is None:
+                        continue
+                    elif t == "s":
+                        val = shared[int(v.text)]
+                    else:
+                        val = v.text
+                    cells[_col_index(c.get("r"))] = val
+                rows.append(cells)
+            if not rows:
+                out[s.get("name")] = []
+                continue
+            header = rows[0]
+            out[s.get("name")] = [{header[i]: v for i, v in r.items() if i in header}
+                                  for r in rows[1:]]
+        return out
+
+
+def read_comments(path):
+    """{(sheet, module, key): comment} for every non-empty Developer Comments cell."""
+    found = {}
+    for sheet, rows in read_sheets(path).items():
+        if sheet not in KEY:
+            continue
+        for row in rows:
+            text = (row.get(COMMENTS) or "").strip()
+            key = row_key(sheet, row) if text else None
+            if key:
+                found[key] = text
+    return found
 
 
 # ---------------------------------------------------------------------------- xlsx
@@ -226,7 +338,8 @@ def sheet_xml(sheet, cols, rows):
         '<cols>%s</cols>' % "".join('<col min="%d" max="%d" width="%d" customWidth="1"/>'
                                     % (i, i, w) for i, w in enumerate(widths, 1)),
         '<sheetData>',
-        '<row r="1">%s</row>' % "".join(xml_cell("%s1" % col_letter(i), c, 1)
+        '<row r="1">%s</row>' % "".join(xml_cell("%s1" % col_letter(i), c,
+                                                  2 if c == COMMENTS else 1)
                                          for i, c in enumerate(cols, 1)),
     ]
     for n, row in enumerate(rows, 2):
@@ -243,17 +356,21 @@ def sheet_xml(sheet, cols, rows):
 STYLES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
-    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'
-    '<fills count="3"><fill><patternFill patternType="none"/></fill>'
+    '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+    '<font><b/><sz val="11"/><color rgb="FF000000"/><name val="Calibri"/></font></fonts>'
+    '<fills count="4"><fill><patternFill patternType="none"/></fill>'
     '<fill><patternFill patternType="gray125"/></fill>'
     '<fill><patternFill patternType="solid"><fgColor rgb="FF1F4E78"/></patternFill></fill>'
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFFFD966"/></patternFill></fill>'
     '</fills>'
     '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
     '</cellStyleXfs>'
-    '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
     '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" '
+    'applyFill="1"/>'
+    '<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" '
     'applyFill="1"/></cellXfs>'
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
     '</styleSheet>')
@@ -332,8 +449,22 @@ def main():
     ap.add_argument("--run-dir", help="run directory (default: the latest)")
     ap.add_argument("--repo-root", default=".")
     ap.add_argument("--out", help="output path (default: <run-dir>/security-catalog-<run>.xlsx)")
+    ap.add_argument("--comments-from", action="append", default=[], metavar="XLSX",
+                    help="also carry Developer Comments over from this workbook; repeatable. "
+                         "The previous run's workbook is included by default, and the existing "
+                         "target always counts and wins on a clash")
+    ap.add_argument("--no-previous-comments", action="store_true",
+                    help="do not carry comments over from the previous run's workbook")
+    ap.add_argument("--list-comments", metavar="XLSX",
+                    help="print the Developer Comments in this workbook (sheet, module, key, "
+                         "comment; tab-separated) and exit - nothing is written")
     ap.add_argument("--url", help=argparse.SUPPRESS)  # accepted so run_audit.py can pass it
     a = ap.parse_args()
+
+    if a.list_comments:
+        for (sheet, module, key), text in sorted(read_comments(a.list_comments).items()):
+            print("\t".join((sheet, module, key, text.replace("\n", " "))))
+        return 0
 
     run_dir = a.run_dir or latest_run_dir(a.repo_root)
     if not run_dir:
@@ -347,6 +478,30 @@ def main():
         run_dir, "security-catalog-%s.xlsx" % os.path.basename(os.path.normpath(run_dir)))
 
     sheets = collect(catalog)
+    sources = []
+    if not a.no_previous_comments:
+        # security-audits/<run> -> the repo root, then the run before this one
+        previous = latest_run_dir(os.path.dirname(os.path.dirname(os.path.abspath(run_dir))),
+                                  before=run_dir)
+        if previous:
+            sources += sorted(glob.glob(os.path.join(previous, "security-catalog-*.xlsx")))[-1:]
+    sources += a.comments_from + ([out] if os.path.isfile(out) else [])
+    comments = {}
+    for source in sources:
+        try:
+            found = read_comments(source)
+        except (OSError, KeyError, zipfile.BadZipFile) as exc:
+            print("could not read comments from %s: %s" % (source, exc), file=sys.stderr)
+            continue
+        comments.update(found)
+        print("carried %d developer comment(s) from %s" % (len(found), source))
+    orphaned = apply_comments(sheets, comments)
+    if orphaned:
+        print("WARNING: %d developer comment(s) match no row in this catalogue - the object "
+              "is gone or renamed. They stay in the source workbook:" % len(orphaned),
+              file=sys.stderr)
+        for (sheet, module, key), text in sorted(orphaned.items()):
+            print("  %s | %s | %s: %s" % (sheet, module, key, text[:80]), file=sys.stderr)
     data = build_xlsx(sheets)
 
     if os.path.isfile(out):

@@ -1,6 +1,6 @@
 ---
 name: shesha-access-control
-description: Designs, documents, and implements access control for Shesha framework applications. Covers discovery of existing roles/permissions, access control design documentation, permission and role creation, API-level authorization, data-level filtering via global specifications, locking built-in framework entities, and guarding administrator credentials against non-admin roles. Use when the user asks to design, implement, audit, review, or document access control, permissions, roles, authorization, security specifications, or data-level filtering in a Shesha project. Also use when implementing features from a PRD or specification that require new or modified roles, permissions, or authorization logic.
+description: Designs, documents, and implements access control for Shesha framework applications. Starts by checking for existing auditing-application-security results (findings and the developer comments in its workbook) and works from them. Covers discovery of existing roles/permissions, access control design documentation, permission and role creation, API-level authorization, data-level filtering via global specifications, locking built-in framework entities, and guarding administrator credentials against non-admin roles. Use when the user asks to design, implement, audit, review, or document access control, permissions, roles, authorization, security specifications, or data-level filtering in a Shesha project. Also use when implementing features from a PRD or specification that require new or modified roles, permissions, or authorization logic.
 ---
 
 # Shesha Access Control Designer & Implementer
@@ -143,6 +143,52 @@ Detailed patterns, examples, and the full access control guide:
 - [reference/authorisation-inventory-test.md](reference/authorisation-inventory-test.md) — Design and scaffolded xUnit template for the authorisation-inventory test: the deterministic access-control invariants, the baseline/snapshot drift policy, the capability gate (static vs live), and how each invariant emits into `findings.json`
 
 ## Workflow
+
+### Step 0: Check for existing audit results (always first)
+
+Before anything else, look for results from the `auditing-application-security` skill. That
+skill already catalogues every endpoint, entity, role and permission and probes them live, and
+the owning developers record their decisions in its workbook. Starting without it means
+re-deriving what is already known, and possibly undoing a decision someone has already made.
+
+1. **Find the latest run.** Runs live at the repository root in `security-audits/YYMMDD-HHMM/`.
+   Take the newest directory. Also check sibling worktrees or copies the user names (for
+   example a separate `_audit-<app>` checkout) if the current repository has none.
+2. **If a run exists**, read, in this order:
+   - `recommendations-index.md` — the top five, the per-package table and the coverage
+     section (what was observed, what was derived, what was not tested).
+   - The access-control rows, without re-scanning. Use the hub's digest:
+     `python <skills-dir>/auditing-application-security/resources/digest.py --run-dir security-audits/<run> --limit 12`.
+     The rows that belong to this skill are the themes "Reachable without logging in",
+     "Open to every logged-in user", "Users can see other people's records", "Rules that
+     block everyone" and "Permissions that do nothing" (`RESTRICT`, `SET-EXPLICIT-ACCESS`,
+     `ADD-GLOBAL-SPECIFICATION`, `GRANT-TO-A-ROLE`, `REMOVE-OR-WIRE-UP`).
+   - **Developer Comments** from the reviewer workbook:
+     `python <skills-dir>/auditing-application-security/resources/export_workbook.py --list-comments security-audits/<run>/security-catalog-<run>.xlsx`.
+     Each line is `sheet, module, key, comment`.
+3. **Respect the comments.** A row marked fixed is *verified* (probe it, or check the code),
+   not re-implemented. A row marked accepted, by design or won't-fix is left alone unless the
+   user reopens it. A row with a question or a ticket reference is raised with the user before
+   you act on it. Never overwrite or delete a developer's comment.
+4. **Check freshness.** Compare the run's date and the commit in the index header with
+   `git log` for the backend. If access-control code (app services, `PermissionedObject`
+   migrations, specifications, roles) changed after the run, say the results may be stale and
+   offer a re-run before relying on them.
+5. **Tell the user what you found** before Step 1, in a few lines: the run used, its age, how
+   many access-control rows are open, how many carry developer comments and what those
+   comments decide. These rows are the backlog for Steps 2–4. Each one already has its
+   `finding_id`, so reuse it (see the hand-off contract above) instead of inventing a new one.
+6. **If no run exists**, say so plainly and offer the choice:
+   - for auditing, reviewing or hardening an *existing* application, recommend running
+     `auditing-application-security` first, then come back here;
+   - for designing access control for *new* requirements (a PRD or a new feature), carry on with
+     Step 1. There is nothing to audit yet.
+
+   Do not skip this step silently in either case.
+
+In Step 5, recommend re-running `auditing-application-security` after the fixes. Its next
+workbook carries the developer comments forward, so the team can mark each row fixed against
+fresh evidence.
 
 ### Step 1: Discover Context
 
