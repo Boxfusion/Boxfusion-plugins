@@ -24,7 +24,7 @@ Stdlib-only Python 3.8+. No pip install, no external dependencies.
 | `digest.py` | The catalogue → the actionable rows only, per package, in priority order |
 | `verify_run.py` | Checks the written reports against the catalogue, and that probes ran signed out, as the low-privilege user and with the framework-entity sweep. **Run it before showing anyone the run** |
 | `findings.py` | `findings.json` built from the catalogue, and the diff between two runs |
-| `export_workbook.py` | **Final step.** The catalogue → `security-catalog-<run>.xlsx`, one worksheet per object type, key columns first |
+| `export_workbook.py` | **Final step.** The catalogue → `security-catalog-<run>.xlsx`, one worksheet per object type, key columns first, then a "Developer Comments" column carried forward between runs |
 | `report.py` | Mechanical tables, if a supporting appendix is wanted |
 | `probe_matrix.json` | Every probe's **exact** path, verb and content type, read off a live OpenAPI document |
 
@@ -90,7 +90,10 @@ Three ordering rules that are easy to get wrong and quietly produce false result
   finished report on the first run of this skill.
 - **`export_workbook.py` after `verify_run.py`.** The workbook is the standard hand-off to
   reviewers, so it is only produced from a catalogue that has passed the gate. It never
-  overwrites a reviewer's edits: a differing existing workbook is kept as `.bak-<stamp>.xlsx`.
+  overwrites a reviewer's edits: a differing existing workbook is kept as `.bak-<stamp>.xlsx`,
+  and the "Developer Comments" column is carried forward from the previous run's workbook and
+  from the existing target (`--comments-from` adds more sources, `--no-previous-comments` skips
+  the previous run).
 
 Diff two runs:
 

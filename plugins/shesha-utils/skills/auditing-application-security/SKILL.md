@@ -475,8 +475,9 @@ Read `references/reporting-phase.md` and follow it for Steps 11–13. In short:
   priority-ordered, jargon-free, observed versus derived marked, and what was not covered stated.
 - **Step 12** — run `verify_run.py` (never skip it), then `findings.py` and, when a previous run
   exists, `findings.py --diff`; put the comparison in the index.
-- **Step 13** — `export_workbook.py`, always last. Summarise to the user, then stop any servers
-  this session started.
+- **Step 13** — `export_workbook.py`, always last. Every sheet carries a "Developer Comments"
+  column for the owning developers' decisions, carried forward from the previous run's workbook.
+  Summarise to the user, then stop any servers this session started.
 
 **After a framework upgrade or a merge of security fixes**, also run `drift.py` (old vs new
 build, then first start vs restart), check forms for removed endpoints, and run the post-merge
